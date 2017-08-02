@@ -44,8 +44,8 @@ class textloader():
                 vocab.append(word)
                 embed.append([float(val) for val in row[1:]])
                 # embeddings_index[word] = row[1:]
+            print("Loading embeddings  " + str(f.name))
             f.close()
-            print("Loading embeddings  " + str(f))
             return vocab,embed
 
         self.vocab, self.embed = load_embeddings('/home/wanli/data/glove.6B/')
@@ -66,9 +66,9 @@ class textloader():
         else:
             return self.word_to_id['the']
 
-    def read_abstrcts(self,path):
-        df = pd.read_csv(path, usecols=[0, 4], index_col=0, header=0,
-                         delimiter=',')
+    def read_abstracts(self, path):
+        df = pd.read_csv(path, usecols=[0, 1], index_col=0, header=0,
+                         delimiter=',',encoding='utf-8')
         self.all_documents = {}
         for index, row in df.iterrows():
             sentences = itertools.chain(*[sent_tokenize(x.lower()) for x in row])
@@ -346,6 +346,21 @@ class textloader():
         docs = [x[:self.min_length] for x in docs]
         docs = np.array(docs)
         return test_u_idx, test_v_idx,test_m, docs
+
+    def rounded_predictions(self, predictions):
+        """
+        The method rounds up the predictions and returns a prediction matrix containing only 0s and 1s.
+        :returns: predictions rounded up matrix
+        :rtype: int[][]
+        """
+        predictions = predictions.copy()
+        n_users = self.M.shape[0]
+        for user in range(n_users):
+            avg = sum(predictions[user]) / predictions.shape[1]
+            low_values_indices = predictions[user, :] < avg
+            predictions[user, :] = 1
+            predictions[user, low_values_indices] = 0
+        return predictions
     ''' 
     https: // github.com / chiphuyen / stanford - tensorflow - tutorials / blob / master / examples / cgru / data_reader.py
     '''
@@ -391,55 +406,4 @@ class textloader():
     #             capacity=2 * batch_size, dynamic_pad=True)
     #         return outputs
 
-
-class Progress:
-    """Text mode progress bar.
-    Usage:
-            p = Progress(30)
-            p.step()
-            p.step()
-            p.step(start=True) # to restart form 0%
-    The progress bar displays a new header at each restart."""
-    def __init__(self, maxi, size=100, msg=""):
-        """
-        :param maxi: the number of steps required to reach 100%
-        :param size: the number of characters taken on the screen by the progress bar
-        :param msg: the message displayed in the header of the progress bat
-        """
-        self.maxi = maxi
-        self.p = self.__start_progress(maxi)()  # () to get the iterator from the generator
-        self.header_printed = False
-        self.msg = msg
-        self.size = size
-
-    def step(self, reset=False):
-        if reset:
-            self.__init__(self.maxi, self.size, self.msg)
-        if not self.header_printed:
-            self.__print_header()
-        next(self.p)
-
-    def __print_header(self):
-        print()
-        format_string = "0%{: ^" + str(self.size - 6) + "}100%"
-        print(format_string.format(self.msg))
-        self.header_printed = True
-
-    def __start_progress(self, maxi):
-        def print_progress():
-            # Bresenham's algorithm. Yields the number of dots printed.
-            # This will always print 100 dots in max invocations.
-            dx = maxi
-            dy = self.size
-            d = dy - dx
-            for x in range(maxi):
-                k = 0
-                while d >= 0:
-                    # print('=', end="", flush=True)
-                    k += 1
-                    d -= dx
-                d += dy
-                yield k
-
-        return print_progress
 
