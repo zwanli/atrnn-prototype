@@ -12,6 +12,7 @@ import time
 from functools import wraps
 # from pympler import asizeof
 # import gc
+from keras.preprocessing.sequence import pad_sequences
 
 
 embedding_size=200
@@ -52,6 +53,7 @@ class textloader():
         self.vocab_size = len(self.vocab)
         self.word_to_id = {word: i for i, word in enumerate(self.vocab)}
         self.M = np.array(0)
+        self.train_idx = None
         self.valid_idx = None
         self.test_idx = None
         self.nonzero_u_idx = None
@@ -64,7 +66,7 @@ class textloader():
         if word in self.vocab:
             return self.word_to_id[word]
         else:
-            return self.word_to_id['the']
+            return self.word_to_id['unk']
 
     def read_abstracts(self, path):
         df = pd.read_csv(path, usecols=[0, 1], index_col=0, header=0,
@@ -296,7 +298,7 @@ class textloader():
                 self.M[user_id, items_idx] = rating
                 i +=1
 
-    def generate_batches(self, nb_epochs):
+    def split_data(self):
         num_rating = np.count_nonzero(self.M)
         idx = np.arange(num_rating)
         np.random.seed(0)
@@ -304,38 +306,72 @@ class textloader():
 
         train_prop = 0.9
         valid_prop = train_prop * 0.05
-        train_idx = idx[:int((train_prop - valid_prop) * num_rating)]
+        self.train_idx = idx[:int((train_prop - valid_prop) * num_rating)]
         self.valid_idx = idx[int((train_prop - valid_prop) * num_rating):int(train_prop * num_rating)]
         self.test_idx = idx[int(0.9 * num_rating):]
 
         self.nonzero_u_idx = self.M.nonzero()[0]
         self.nonzero_v_idx = self.M.nonzero()[1]
 
-        train_size = train_idx.size
+        train_size = self.train_idx.size
         trainM = np.zeros(self.M.shape)
-        trainM[self.nonzero_u_idx[train_idx], self.nonzero_v_idx[train_idx]] = self.M[
-            self.nonzero_u_idx[train_idx], self.nonzero_v_idx[train_idx]]
+        trainM[self.nonzero_u_idx[self.train_idx], self.nonzero_v_idx[self.train_idx]] = self.M[
+            self.nonzero_u_idx[self.train_idx], self.nonzero_v_idx[self.train_idx]]
+        u_idx =self.nonzero_u_idx[self.train_idx]
+        v_idx = self.nonzero_v_idx[self.train_idx]
+        r = trainM[u_idx, v_idx]
+        docs = [self.all_documents[x] for x in v_idx]
+        return u_idx, v_idx, r, docs
+
+    def generate_batches(self, nb_epochs,train=True, validation=False,test=False):
+        num_rating = np.count_nonzero(self.M)
+        idx = np.arange(num_rating)
+        np.random.seed(0)
+        np.random.shuffle(idx)
+
+        train_prop = 0.9
+        valid_prop = train_prop * 0.05
+        self.train_idx = idx[:int((train_prop - valid_prop) * num_rating)]
+        self.valid_idx = idx[int((train_prop - valid_prop) * num_rating):int(train_prop * num_rating)]
+        self.test_idx = idx[int(0.9 * num_rating):]
+
+        self.nonzero_u_idx = self.M.nonzero()[0]
+        self.nonzero_v_idx = self.M.nonzero()[1]
+        if train:
+            idx = self.train_idx
+        if validation:
+            idx = self.valid_idx
+        if test:
+            idx = self.test_idx
+
+        train_size =  idx.size
+        trainM = np.zeros(self.M.shape)
+        trainM[self.nonzero_u_idx[idx], self.nonzero_v_idx[idx]] = self.M[
+            self.nonzero_u_idx[idx], self.nonzero_v_idx[idx]]
         nb_batches = train_size // self.batch_size
         assert nb_batches > 0, "Not enough data, even for a single batch. Try using a smaller batch_size."
         rounded_data_len = nb_batches * self.batch_size
-        udata = np.reshape(train_idx[0:rounded_data_len], [self.batch_size, nb_batches])
+        udata = np.reshape(idx[0:rounded_data_len], [self.batch_size, nb_batches])
+        i =0
         for epoch in range(nb_epochs):
             for batch in range(nb_batches):
-                u_idx = self.nonzero_u_idx[udata[:,batch]]
-                v_idx = self.nonzero_v_idx[udata[:,batch]]
+                u_idx = self.nonzero_u_idx[udata[:, batch]]
+                v_idx = self.nonzero_v_idx[udata[:, batch]]
                 r = trainM[u_idx, v_idx]
                 docs = []
                 docs = [self.all_documents[x] for x in v_idx]
-                docs = [x[:self.min_length] for x in docs]
+                # docs = [x[:self.min_length] for x in docs]
                 docs = np.array(docs)
+                i += 1
                 yield u_idx, v_idx, r, docs, epoch
+        print('Total number of batches: {0} of size {1}'.format(i,self.batch_size))
 
     def get_valid_idx(self):
         valid_u_idx = self.nonzero_u_idx[self.valid_idx]
         valid_v_idx = self.nonzero_v_idx[self.valid_idx]
         valid_m = self.M[valid_u_idx, valid_v_idx]
         docs = [self.all_documents[x] for x in valid_v_idx]
-        docs = [x[:self.min_length] for x in docs]
+        # docs = [x[:self.min_length] for x in docs]
         docs = np.array(docs)
         return valid_u_idx, valid_v_idx, valid_m, docs
     def get_test_idx(self):
@@ -343,7 +379,7 @@ class textloader():
         test_v_idx = self.nonzero_v_idx[self.test_idx]
         test_m = self.M[test_u_idx, test_v_idx]
         docs = [self.all_documents[x] for x in test_v_idx]
-        docs = [x[:self.min_length] for x in docs]
+        # docs = [x[:self.min_length] for x in docs]
         docs = np.array(docs)
         return test_u_idx, test_v_idx,test_m, docs
 
@@ -361,6 +397,19 @@ class textloader():
             predictions[user, :] = 1
             predictions[user, low_values_indices] = 0
         return predictions
+
+    def static_padding(self,docs):
+        lengths = []
+        long_docs = 0
+        max_length = 300
+        for d in docs:
+            if len(d) <= max_length:
+                lengths.append(len(d))
+            else:
+                lengths.append(max_length)
+        padded_seq = pad_sequences(docs, maxlen=max_length, padding='post')
+        return padded_seq, lengths
+
     ''' 
     https: // github.com / chiphuyen / stanford - tensorflow - tutorials / blob / master / examples / cgru / data_reader.py
     '''

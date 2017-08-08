@@ -1,5 +1,6 @@
 import tensorflow as tf
 from tensorflow.contrib import rnn
+
 import numpy as np
 
 
@@ -32,7 +33,7 @@ class Model():
 
 
         # queue = tf.FIFOQueue()
-        self.input_data = tf.placeholder(tf.int32, [None, args.seq_length],name="Input_text")
+        self.input_data = tf.placeholder(tf.int32, [None, None],name="Input_text")
         self.seq_lengths = tf.placeholder(tf.int32,[None],name="seq_lengths")
         # self.input_data = tf.placeholder(tf.int32, [args.batch_size, args.seq_length], name="Input_text")
         # self.seq_lengths = tf.placeholder(tf.int32, [args.batch_size], name="seq_lengths")
@@ -80,9 +81,17 @@ class Model():
         self.init_state_fw =cell_bw.zero_state(self.batch_size,tf.float32)
         self.init_state_bw =cell_fw.zero_state(self.batch_size,tf.float32)
 
-        inputs = tf.unstack(inputs, args.seq_length, 1)
-        bi_outputs, self.bi_output_state_fw, self.bi_output_state_bw = rnn.static_bidirectional_rnn(cell_fw, cell_bw, inputs,initial_state_bw=self.init_state_bw,initial_state_fw=self.init_state_fw,
-                                                                                    dtype=tf.float32)
+        bi_outputs, bi_output_state = \
+            tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, inputs, sequence_length=self.seq_lengths,
+                                            initial_state_bw=self.init_state_bw, initial_state_fw=self.init_state_fw)
+        bi_outputs = tf.concat(bi_outputs, 2)
+        self.bi_output_state_fw, self.bi_output_state_bw = bi_output_state
+
+        # (bi_outputs_fw, bi_outputs_bw), self.bi_output_state_fw, self.bi_output_state_bw = \
+        #         tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw,inputs,sequence_length=self.seq_lengths,
+        #                                  initial_state_bw=self.init_state_bw,initial_state_fw=self.init_state_fw)
+        # bi_outputs = tf.concat((bi_outputs_fw,bi_outputs_bw),2)
+
         self.bi_output_state_fw = tf.identity(self.bi_output_state_fw, name='bi_state_fw')  # just to give it a name
         self.bi_output_state_bw = tf.identity(self.bi_output_state_bw, name='bi_state_bw')  # just to give it a name
 
@@ -93,16 +102,14 @@ class Model():
         self.cell = cell = rnn.MultiRNNCell(cells)
         self.initial_state = cell.zero_state(self.batch_size, tf.float32)
 
-        bi_outputs = tf.stack(bi_outputs,1)
-        self.Yr, self.H = tf.nn.dynamic_rnn(cell,bi_outputs,
+        # bi_outputs = tf.stack(bi_outputs,1)
+        self.Yr, self.H = tf.nn.dynamic_rnn(cell,bi_outputs,sequence_length=self.seq_lengths,
                                             initial_state=self.initial_state,dtype=tf.float32)
         # Yr: [ BATCHSIZE, SEQLEN, INTERNALSIZE ]
         # H:  [ BATCHSIZE, INTERNALSIZE*NLAYERS ] # this is the last state in the sequence
         self.H = tf.identity(self.H, name='H')  # just to give it a name
         self.Yr = tf.identity(self.Yr, name='Yr')
 
-            # _, _, self.G= tf.split(self.H,args.num_layers,0)
-            # self.G = tf.squeeze(self.G, 0)
         self.G = tf.reduce_mean(self.Yr, 1)
 
         self.u_idx = tf.placeholder(tf.int32, [None],name="U_matrix")
@@ -151,6 +158,28 @@ class Model():
 
         # add op for merging summary
         self.summary_op = tf.summary.merge_all()
+
+        self.recall = tf.Variable(0, trainable=False,dtype=tf.float32)
+        self.recall_10 = tf.Variable(0, trainable=False, dtype=tf.float32)
+        self.recall_50 = tf.Variable (0,trainable=False, dtype=tf.float32)
+        self.recall_100 = tf.Variable(0, trainable=False, dtype=tf.float32)
+        self.recall_200 = tf.Variable(0, trainable=False, dtype=tf.float32)
+        recall_sum =tf.summary.scalar("Recall",self.recall)
+        recall_10_sum = tf.summary.scalar('recall@10',self.recall_10)
+        recall_50_sum = tf.summary.scalar('recall@50',self.recall_50)
+        recall_100_sum = tf.summary.scalar('recall@100',self.recall_100)
+        recall_200_sum = tf.summary.scalar('recall@200',self.recall_200)
+
+        self.ndcg_5 = tf.Variable(0, trainable=False,dtype=tf.float32)
+        self.ndcg_10 = tf.Variable(0, trainable=False,dtype=tf.float32)
+        ndcg_5_sum = tf.summary.scalar('ndcg@5',self.ndcg_5)
+        ndcg_10_sum = tf.summary.scalar('ndcg@10',self.ndcg_10)
+
+
+        self.eval_metrics = tf.summary.merge((recall_sum,recall_10_sum,recall_50_sum,recall_100_sum,recall_200_sum,
+                                             ndcg_5_sum, ndcg_10_sum))
+
+
 
         # add Saver ops
         self.saver = tf.train.Saver()
