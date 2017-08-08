@@ -137,7 +137,7 @@ def train(args):
         custom_runner = CustomRunner(batch_size, bucket_boundaries,data_loader)
         seq_len, outputs = custom_runner.get_outputs()
     with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
-        # train_writer.add_graph(sess.graph)
+        train_writer.add_graph(sess.graph)
         # valid_writer.add_graph(sess.graph)
         # test_writer.add_graph(sess.graph)
         tf.global_variables_initializer().run()
@@ -219,7 +219,7 @@ def train(args):
                     rmse_test, mae_test, summary_str = sess.run(
                         [model.RMSE, model.MAE, model.summary_op], feed_dict=feed_dict)
 
-                    # test_writer.add_summary(summary_str, step)
+                    test_writer.add_summary(summary_str, step)
 
                     prediction_matrix = np.matmul(U,V.T)
                     prediction_matrix = np.add(prediction_matrix,np.reshape(U_b,[-1,1]))

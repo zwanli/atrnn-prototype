@@ -66,7 +66,7 @@ class textloader():
         if word in self.vocab:
             return self.word_to_id[word]
         else:
-            return self.word_to_id['the']
+            return self.word_to_id['unk']
 
     def read_abstracts(self, path):
         df = pd.read_csv(path, usecols=[0, 1], index_col=0, header=0,
