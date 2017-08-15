@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# encoding: UTF-8
+
 """
 This module provides functionalities for parsing the data
 """
@@ -10,7 +12,6 @@ import datetime
 from nltk.tokenize import sent_tokenize
 from nltk.tokenize import word_tokenize
 import itertools
-
 import sys
 
 '''
@@ -24,11 +25,11 @@ csv.field_size_limit(sys.maxsize)
 
 
 class DataParser(object):
-    def __init__(self, dataset, papers_presentation,use_embeddings=False,**kwargs):
+    def __init__(self,base_folder, dataset, papers_presentation,use_embeddings=False,**kwargs):
         """
         Initializes the data parser given a dataset name
         """
-        self.base_folder = '../datasets/Extended_ctr'
+        self.base_folder = base_folder
         self.dataset = dataset
         self.papers_presentation = papers_presentation
 
@@ -48,8 +49,8 @@ class DataParser(object):
                 self.embed_dir = kwargs['embed_dir']
             if 'embed_dim' in kwargs.keys():
                 self.embed_dim = kwargs['embed_dim']
-            self.embed_vocab = None
-            self.embeddings = None
+            self.embed_vocab = []
+            self.embeddings = []
             self.embed_word_to_id = {}
 
 
@@ -57,15 +58,21 @@ class DataParser(object):
         #Papers are represented as vectors of strings
         self.raw_data = None
         #Papers are represented as vectors of word ids instead of strings
-        self.paper_data_ids = None
+        self.all_documents = {}
 
         self.paper_count = None
         self.user_count = None
+        self.unkows_words = {}
+        self.unkows_words_count = 0
+        self.numbers_count = 0
         self.words = {}
         self.words_count = 0
         self.id_map = {}
-
+        self.paper_count_threshold = 2
         self.authors_map = {}
+
+        self.train_ratings = None
+        self.test_ratings = None
         self.process()
 
     def process(self):
@@ -101,7 +108,7 @@ class DataParser(object):
                 documents_hash[doc_id] = words
                 docs_count += 1
         document_words = np.zeros((docs_count, words_count))
-        for key, entry in documents_hash.iteritems():
+        for key, entry in documents_hash.items():
             for value in entry:
                 word_id = value[0]
                 word_count = value[1]
@@ -118,6 +125,7 @@ class DataParser(object):
     def load_embeddings(self):
         #Load pre-trained embeddings
         f = open(os.path.join(self.embed_dir, 'glove.6B.{0}d.txt'.format(self.embed_dim)))
+        print("Loading embeddings  " + str(f.name))
         for line in f:
             row = line.split()
             word = row[0]
@@ -125,11 +133,12 @@ class DataParser(object):
             self.embed_vocab.append(word)
             #Add the embedding of th word
             self.embeddings.append([float(val) for val in row[1:]])
-        print("Loading embeddings  " + str(f.name))
         f.close()
         #Create a word to id index
         self.embed_word_to_id = {word: i for i, word in enumerate(self.embed_vocab)}
         return self.embed_vocab, self.embeddings
+
+
 
     def get_word_id(self,word):
         """
@@ -137,10 +146,23 @@ class DataParser(object):
             :returns: Word id
             :rtype int
         """
+
+        def is_number(s):
+            try:
+                float(s)
+                return True
+            except ValueError:
+                return False
         if word in self.embed_vocab:
-            return self.word_to_id[word]
+            return self.embed_word_to_id[word]
+        elif is_number(word):
+            self.numbers_count += 1
+            # print('is_number {0}'.format(word))
+            return self.embed_word_to_id['unk']
         else:
-            return self.word_to_id['unk']
+            # print('Unknow word: {0}'.format(word))
+            self.unkows_words[word] = 1
+            return self.embed_word_to_id['unk']
 
     def parse_paper_features(self):
         """
@@ -148,7 +170,7 @@ class DataParser(object):
         """
         now = datetime.datetime.now()
         path = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.dataset_folder, 'paper_info.csv')
-        with open(path, "r") as f:
+        with open(path, "r",encoding='utf-8', errors='ignore') as f:
             reader = csv.reader(f, delimiter='\t')
             first_line = True
             feature_vec = []
@@ -202,7 +224,7 @@ class DataParser(object):
         total = 0
         if self.dataset == 'citeulike-t':
             delimiter = '\t'
-        with open(path, "r") as f:
+        with open(path, "r",encoding='utf-8', errors='ignore') as f:
             reader = csv.reader(f, delimiter=delimiter)
             first_line = True
             data_vec = []
@@ -230,6 +252,7 @@ class DataParser(object):
         # print(self.words_count)
         return labels, np.array(data_vec)
 
+
     def get_papar_as_word_ids(self):
         """ Convert the papers raw data to vectors of word ids of the pre-trained embeddings' vocabulary
         :return: Papers' abstracts as ids
@@ -238,14 +261,19 @@ class DataParser(object):
             self.raw_labels, self.raw_data = self.parse_paper_raw_data()
         docs =[]
         if self.use_pre_trained_embed:
-            for paper in self.raw_data:
+            for i, paper in enumerate(self.raw_data):
                 sentences = itertools.chain(*[sent_tokenize(x.lower()) for x in paper])
                 sentences = [word_tokenize(x) for x in sentences]
-                doc_ids= ([self.get_word_id(word) for sentence in sentences for word in sentence])
-                docs.append(doc_ids)
-        self.paper_data_ids = doc_ids
+                doc_idx= ([self.get_word_id(word.lower()) for sentence in sentences for word in sentence])
+                self.all_documents[i] = doc_idx
+        # self.paper_data_ids = docs
+        self.unkows_words_count = len(self.unkows_words.items())
+        print ("Unknown words: ")
+        for word in self.unkows_words.keys():
+            print(word)
+        print('total number of unk words: {0} '.format(self.unkows_words_count))
         # TODO: Get word ids when not using pre-trained word embeddings
-        return self.paper_data_ids
+        return self.all_documents
 
     def get_paper_conference(self, paper):
         journal_index = -1
@@ -258,18 +286,18 @@ class DataParser(object):
                 booktitle_index = index
             if label == 'series':
                 series_index = index
-        if self.feature_matrix[paper][journal_index] != "\N":
+        if self.feature_matrix[paper][journal_index] != '\\N':
             return self.feature_matrix[paper][journal_index]
-        if self.feature_matrix[paper][booktitle_index] != "\N":
+        if self.feature_matrix[paper][booktitle_index] != '\\N':
             return self.feature_matrix[path][booktitle_index]
-        if self.feature_matrix[paper][series_index] != "\N":
+        if self.feature_matrix[paper][series_index] != '\\N':
             return self.feature_matrix[path][series_index]
         return None
 
     def parse_authors(self):
         if bool(self.id_map) == False:
             path = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.dataset_folder, 'paper_info.csv')
-            with open(path, "r") as f:
+            with open(path, "r",encoding='utf-8', errors='ignore') as f:
                 reader = csv.reader(f, delimiter='\t')
                 first_line = True
                 for line in reader:
@@ -279,7 +307,7 @@ class DataParser(object):
                     paper_id = line[0]
                     self.id_map[int(line[1])] = paper_id
         path = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.dataset_folder, 'authors.csv')
-        with open(path, "r") as f:
+        with open(path, "r",encoding='utf-8', errors='ignore') as f:
             reader = csv.reader(f, delimiter='\t')
             first_line = True
             for line in reader:
@@ -334,9 +362,7 @@ class DataParser(object):
                 splitted = line.replace("\n", "").split(" ")
                 for paper_id in splitted:
                     ratings[i][int(paper_id)] = 1
-
                 i += 1
-
         return ratings
 
     def get_raw_data(self):
@@ -347,4 +373,117 @@ class DataParser(object):
 
     def get_ratings_matrix(self):
         return self.ratings
+
+    def get_vocab_size(self):
+        if self.use_pre_trained_embed:
+            return len(self.embed_vocab)
+        else:
+            return self.words_count
+
+    def split_warm_start(self,folds):
+
+        idx = np.arange(0,self.paper_count)
+        self.test_ratings = [[[] for u in range(self.user_count)]for x in range(folds)]
+        self.train_ratings = [[[] for u in range(self.user_count)] for x in range(folds)]
+        items_count = np.sum(self.ratings, axis=0,dtype=int)
+        always_in_train=[]
+        for i, count in enumerate(items_count):
+            if count < self.paper_count_threshold:
+                always_in_train.append(i)
+        for user in range(self.user_count):
+            rated_items_indices = self.ratings[user].nonzero()[0]
+            # Shuffle all rated items indices
+            np.random.shuffle(rated_items_indices)
+            item_per_fold = len(rated_items_indices)/ folds
+            for fold in range(folds):
+                start = fold * item_per_fold
+                end = (fold + 1) * item_per_fold
+                if fold == folds - 1:
+                    end = len(idx) - 1
+                u_test_indices = rated_items_indices[start:end]
+                u_test_indices = [i for i in u_test_indices if i not in always_in_train]
+                # mask = np.ones(len(rated_items_indices), dtype=bool)
+                # mask[[rated_items_indices]] = False
+                # train_idx = rated_items_indices[mask]
+                u_train_indices = [i for i in rated_items_indices if i not in u_test_indices]
+                assert (len(u_test_indices) + len(u_train_indices) == len(rated_items_indices))
+                self.train_ratings[fold][user] = u_train_indices
+                self.test_ratings[fold][user] = u_test_indices
+        return self.train_ratings,self.test_ratings
+
+    def split_cold_start(self, folds):
+        item_per_fold = self.paper_count / folds
+        idx = np.arange(0,self.paper_count)
+        np.random.shuffle(idx)
+        test_ratings = [[[] for u in range(self.user_count)]for x in range(folds)]
+        train_ratings = [[[] for u in range(self.user_count)] for x in range(folds)]
+        items_count = np.sum(self.ratings, axis=0,dtype=int)
+        always_in_train=[]
+        for i, count in enumerate(items_count):
+            if count < self.paper_count_threshold:
+                always_in_train.append(i)
+        for fold in range(folds):
+            start = fold *item_per_fold
+            end = (fold+1) *item_per_fold
+            if fold == folds -1:
+                end = len(idx)-1
+            test_idx = idx[start:end]
+            test_idx = [i for i in test_idx if i not in always_in_train]
+            mask = np.ones(self.paper_count, dtype=bool)
+            mask[[test_idx]] = False
+            train_idx = idx[mask]
+            assert (len(test_idx)+len(train_idx) == self.paper_count)
+            for user in range(self.user_count):
+                rated_items_indices = self.ratings[user].nonzero()[0]
+                u_train_indices = np.intersect1d(train_idx,rated_items_indices)
+                u_test_indices = np.intersect1d(test_idx,rated_items_indices)
+                train_ratings[fold][user] = u_train_indices
+                test_ratings[fold][ user] = u_test_indices
+        return train_ratings,test_ratings
+
+    def generate_batches(self,batch_size,train=True, validation=False,test=False):
+        ratings = np.zeros((self.user_count, self.paper_count))
+        fold = 0
+        for i, u in enumerate(self.train_ratings[fold]):
+                for v in u:
+                    ratings[i][v]=1
+
+        self.nonzero_u_idx = ratings.nonzero()[0]
+        self.nonzero_v_idx = ratings.nonzero()[1]
+        num_rating = np.count_nonzero(ratings)
+        idx = np.arange(num_rating)
+        np.random.seed(0)
+        np.random.shuffle(idx)
+
+        nb_batches = num_rating // batch_size
+        assert nb_batches > 0, "Not enough data, even for a single batch. Try using a smaller batch_size."
+        for batch in range(nb_batches):
+            batch_idx = np.random.randint(num_rating, size=batch_size)
+            u_idx = self.nonzero_u_idx[idx[batch_idx]]
+            v_idx = self.nonzero_v_idx[idx[batch_idx]]
+            r = ratings[u_idx, v_idx]
+            docs = []
+            docs = [self.all_documents[x] for x in v_idx]
+            docs = np.array(docs)
+            yield u_idx, v_idx, r, docs
+        # return True
+
+    def get_test_idx(self):
+        ratings = np.zeros((self.user_count, self.paper_count))
+        fold = 0
+        for i, u in enumerate(self.test_ratings[fold]):
+            for v in u:
+                ratings[i][v] = 1
+
+        nonzero_u_idx = ratings.nonzero()[0]
+        nonzero_v_idx = ratings.nonzero()[1]
+        num_rating = np.count_nonzero(ratings)
+        idx = np.arange(num_rating)
+
+        test_u_idx = self.nonzero_u_idx[idx]
+        test_v_idx = self.nonzero_v_idx[idx]
+        test_m = ratings[test_u_idx, test_v_idx]
+        docs = [self.all_documents[x] for x in test_v_idx]
+        docs = np.array(docs)
+        return test_u_idx, test_v_idx, test_m, docs,ratings
 
