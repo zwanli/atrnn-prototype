@@ -84,6 +84,11 @@ def train(args):
     parser.generate_batches(128)
     model = Model(args, parser.get_ratings_matrix(),parser.embeddings)
 
+    print('Vocabolary size {0}'.format(parser.words_count))
+    print("Uknown words {0}".format(parser.unkows_words_count))
+    print("Uknown numbers {0}".format(parser.numbers_count))
+
+
     def construct_feed(u_idx, v_idx, r, docs,seq_lengths,bi_hid_fw, bi_hid_bw, batch_size):
         return {model.u_idx: u_idx, model.v_idx: v_idx, model.r: r, model.input_data: docs, model.seq_lengths:seq_lengths,
                 model.init_state_fw: bi_hid_fw, model.init_state_bw: bi_hid_bw,model.batch_size: batch_size}
@@ -137,7 +142,8 @@ def train(args):
         custom_runner = CustomRunner(batch_size, bucket_boundaries,parser)
         seq_len, outputs = custom_runner.get_outputs()
     with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
-        # train_writer.add_graph(sess.graph)
+        print('Saving graph to disk...')
+        train_writer.add_graph(sess.graph)
         # valid_writer.add_graph(sess.graph)
         # test_writer.add_graph(sess.graph)
         tf.global_variables_initializer().run()
@@ -149,6 +155,7 @@ def train(args):
         test_batches = {}
 
         try:
+            print('Bucketing batches...')
             custom_runner.enque_input(sess)
             custom_runner.close(sess)
             # threads = tf.train.start_queue_runners(sess, coord)

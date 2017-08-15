@@ -268,7 +268,7 @@ class DataParser(object):
                 self.all_documents[i] = doc_idx
         # self.paper_data_ids = docs
         self.unkows_words_count = len(self.unkows_words.items())
-        print ("Unknown words: ")
+        # print ("Unknown words: ")
         for word in self.unkows_words.keys():
             print(word)
         print('total number of unk words: {0} '.format(self.unkows_words_count))

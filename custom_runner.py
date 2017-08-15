@@ -78,7 +78,7 @@ class CustomRunner(object):
             sess.run(self.input_enqueue_op, feed_dict={
                 self.input_text: docs, self.seq_lengths: get_lengths(docs),
                 self.u_idx: u_idx, self.v_idx: v_idx, self.r: ratings})
-            print("QueueSize = %i" % (sess.run(self.queue_size)))
+            # print("QueueSize = %i" % (sess.run(self.queue_size)))
 
 
     def close(self, sess):
