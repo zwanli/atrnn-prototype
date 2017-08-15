@@ -396,8 +396,8 @@ class DataParser(object):
             np.random.shuffle(rated_items_indices)
             item_per_fold = len(rated_items_indices)/ folds
             for fold in range(folds):
-                start = fold * item_per_fold
-                end = (fold + 1) * item_per_fold
+                start = int( fold * item_per_fold)
+                end = int((fold + 1) * item_per_fold)
                 if fold == folds - 1:
                     end = len(idx) - 1
                 u_test_indices = rated_items_indices[start:end]
@@ -423,8 +423,8 @@ class DataParser(object):
             if count < self.paper_count_threshold:
                 always_in_train.append(i)
         for fold in range(folds):
-            start = fold *item_per_fold
-            end = (fold+1) *item_per_fold
+            start = int(fold *item_per_fold)
+            end = int ((fold+1) *item_per_fold)
             if fold == folds -1:
                 end = len(idx)-1
             test_idx = idx[start:end]
