@@ -17,6 +17,7 @@ def load_abstracts(parser,dataset):
         with open('abstracts_word_embeddings_{}.pkl'.format(dataset), 'rb') as f:
             parser.all_documents = pickle.load(f)
     else:
+        parser.get_papar_as_word_ids()
         with open("abstracts_word_embeddings_{}.pkl".format(dataset),'wb') as f:
             pickle.dump(parser.all_documents,f,pickle.HIGHEST_PROTOCOL)
             print("Saved abstracts")
@@ -33,11 +34,11 @@ def num_samples(path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default='/home/wanli/data/Extended_ctr/',
+    parser.add_argument('--data_dir', type=str, default='/home/wanliz/data/Extended_ctr/',
                         help='data directory containing input.txt')
     parser.add_argument("--dataset", "-d", type=str, default='dummy',
                         help="Which dataset to use", choices=['dummy', 'citeulike-a', 'citeulike-t'])
-    parser.add_argument('--embedding_dir', type=str, default='/home/wanli/data/glove.6B/',
+    parser.add_argument('--embedding_dir', type=str, default='/home/wanliz/data/glove.6B/',
                         help='GloVe embedding directory containing embeddings file')
     parser.add_argument('--embedding_dim', type=int, default=200,
                         help='dimension of the embeddings', choices=['50', '100', '200', '300'])
@@ -58,7 +59,7 @@ def main():
                         help='minibatch size')
     parser.add_argument('--max_length', type=int, default=1000,
                         help='Maximum document length')
-    parser.add_argument('--num_epochs', type=int, default=200,
+    parser.add_argument('--num_epochs', type=int, default=10,
                         help='number of epochs')
     parser.add_argument('--save_every', type=int, default=1000,
                         help='save frequency')

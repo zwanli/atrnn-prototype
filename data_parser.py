@@ -269,9 +269,9 @@ class DataParser(object):
         # self.paper_data_ids = docs
         self.unkows_words_count = len(self.unkows_words.items())
         # print ("Unknown words: ")
-        for word in self.unkows_words.keys():
-            print(word)
-        print('total number of unk words: {0} '.format(self.unkows_words_count))
+        # for word in self.unkows_words.keys():
+        #     print(word)
+        # print('total number of unkown words: {0} '.format(self.unkows_words_count))
         # TODO: Get word ids when not using pre-trained word embeddings
         return self.all_documents
 
@@ -407,8 +407,10 @@ class DataParser(object):
                 # train_idx = rated_items_indices[mask]
                 u_train_indices = [i for i in rated_items_indices if i not in u_test_indices]
                 assert (len(u_test_indices) + len(u_train_indices) == len(rated_items_indices))
-                self.train_ratings[fold][user] = u_train_indices.sort()
-                self.test_ratings[fold][user] = u_test_indices.sort()
+                u_train_indices.sort()
+                u_test_indices.sort()
+                self.train_ratings[fold][user] = u_train_indices
+                self.test_ratings[fold][user] = u_test_indices
         return self.train_ratings,self.test_ratings
 
     def split_warm_start_item(self, folds):
@@ -504,8 +506,10 @@ class DataParser(object):
                 rated_items_indices = self.ratings[user].nonzero()[0]
                 u_train_indices = np.intersect1d(train_idx,rated_items_indices)
                 u_test_indices = np.intersect1d(test_idx,rated_items_indices)
-                train_ratings[fold][user] = u_train_indices.sort()
-                test_ratings[fold][ user] = u_test_indices.sort()
+                u_train_indices.sort()
+                u_test_indices.sort()
+                train_ratings[fold][user] =u_train_indices
+                test_ratings[fold][ user] =u_test_indices
         self.train_ratings = train_ratings
         self.test_ratings = test_ratings
         return self.train_ratings,self.test_ratings
