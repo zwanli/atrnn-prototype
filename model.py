@@ -1,21 +1,22 @@
 import tensorflow as tf
 from tensorflow.contrib import rnn
-
 import numpy as np
+import os
+from utils import read_and_decode
 
 
 def weight_variable(shape, name):
     initial = tf.truncated_normal(shape, stddev=0.001)
     return tf.Variable(initial, name=name)
 
-
 def bias_variable(shape, name):
     b_init = tf.constant_initializer(0.)
     return tf.get_variable(name, shape, initializer=b_init)
 
 class Model():
-    def __init__(self, args, M, embed, reg_lambda=0.01):
+    def __init__(self, args, M, embed,filename, reg_lambda=0.01,random_shuffl=False,name='tr'):
         self.args = args
+        self.dataset = args.dataset
         if args.model == 'rnn':
             cell_fn = rnn.BasicRNNCell
         elif args.model == 'gru':
@@ -29,16 +30,20 @@ class Model():
         self.learning_rate = args.learning_rate
         # self.batch_size = args.batch_size
         self.reg_lambda = tf.constant(reg_lambda, dtype=tf.float32)
+        self.batch_size = args.batch_size
 
 
+        # self.input_text = tf.placehoslder(tf.int32, [None, None],name="Input_text")
+        # self.seq_lengths = tf.placeholder(tf.int32,[None],name="seq_lengths")
+        # self.u_idx = tf.placeholder(tf.int32, [None],name="U_matrix")
+        # self.v_idx = tf.placeholder(tf.int32, [None],name="V_matrix")
+        # self.r = tf.placeholder(tf.float32, [None],name="R_target")
 
-        # queue = tf.FIFOQueue()
-        self.input_data = tf.placeholder(tf.int32, [None, None],name="Input_text")
-        self.seq_lengths = tf.placeholder(tf.int32,[None],name="seq_lengths")
-        # self.input_data = tf.placeholder(tf.int32, [args.batch_size, args.seq_length], name="Input_text")
-        # self.seq_lengths = tf.placeholder(tf.int32, [args.batch_size], name="seq_lengths")
-        # self.targets = tf.placeholder(tf.int32, [args.batch_size, args.seq_length],name="target_text")
-        self.batch_size = tf.placeholder(tf.int32,[], name="batch_size")
+        with tf.device("/cpu:0"):  # with tf.device("/cpu:0"):
+            self.u_idx,self.v_idx, self.r, self.input_text, self.seq_lengths\
+                = get_inputs(filename,batch_size=self.batch_size)
+            
+        # self.batch_size = tf.placeholder(tf.int32,[], name="batch_size")
         self.batch_pointer = tf.Variable(0, name="batch_pointer", trainable=False, dtype=tf.int32)
         self.inc_batch_pointer_op = tf.assign(self.batch_pointer, self.batch_pointer + 1)
         self.epoch_pointer = tf.Variable(0, name="epoch_pointer", trainable=False)
@@ -58,10 +63,6 @@ class Model():
                 #tf.summary.histogram('histogram', var)
 
         with tf.variable_scope('rnnlm'):
-            # softmax_w = tf.get_variable("softmax_w", [args.rnn_size, args.vocab_size])
-            # variable_summaries(softmax_w)
-            # softmax_b = tf.get_variable("softmax_b", [args.vocab_size])
-            # variable_summaries(softmax_b)
             with tf.device("/cpu:0"):
                 vocab_size = args.vocab_size
                 embedding_dim = len(embed[0])
@@ -72,7 +73,7 @@ class Model():
                 # embedding = tf.get_variable("embedding", [args.vocab_size, args.rnn_size])
                 # inputs = tf.split(, args.seq_length, 1)
                 # inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
-                inputs = tf.nn.embedding_lookup(embedding, self.input_data)
+                inputs = tf.nn.embedding_lookup(embedding, self.input_text)
 
         cells = []
 
@@ -112,9 +113,6 @@ class Model():
 
         self.G = tf.reduce_mean(self.Yr, 1)
 
-        self.u_idx = tf.placeholder(tf.int32, [None],name="U_matrix")
-        self.v_idx = tf.placeholder(tf.int32, [None],name="V_matrix")
-        self.r = tf.placeholder(tf.float32, [None],name="R_target")
 
         self.U = weight_variable([self.n, self.k], 'U')
         self.V = weight_variable([self.m, self.k], 'V')
@@ -184,3 +182,47 @@ class Model():
         # add Saver ops
         self.saver = tf.train.Saver()
 
+def get_inputs(filename,batch_size,test=False):
+
+    # The actual queue of data. The queue contains a vector for
+    if (not os.path.exists(filename)):
+        print('Dataset file does not exist {0}'.format(filename))
+        raise SystemExit
+    capacity = 20 * batch_size
+
+    # Create a list of filenames and pass it to a queue
+    filename_queue = tf.train.string_input_producer([filename], num_epochs=None)
+
+    # Output order: u, v, r, doc, length
+    train_features = read_and_decode(filename_queue=filename_queue)
+    input_queue = tf.FIFOQueue(
+        capacity=capacity, dtypes=(tf.int32, tf.int32, tf.float32, tf.int32, tf.int32),
+        shared_name='shared_name{0}'.format('_train'))
+    # The symbolic operation to add data to the queue
+    input_enqueue_op = input_queue.enqueue(train_features)
+    numberOfThreads = 1
+    # now setup a queue runner to handle enqueue_op outside of the main thread asynchronously
+    qr = tf.train.QueueRunner(input_queue, [input_enqueue_op] * numberOfThreads)
+    # now we need to add qr to the TensorFlow queue runners collection
+    tf.train.add_queue_runner(qr)
+    # outputs(u, v, r, abstract, abs_length)
+    outputs = input_queue.dequeue()
+
+    u_idx_t = tf.reshape(outputs[0], [1])
+    v_idx_t = tf.reshape(outputs[1], [1])
+    r_t = tf.reshape(outputs[2], [1])
+    input_t = tf.reshape(outputs[3], [1, -1])
+    lengths_t = tf.reshape(outputs[4], [1])
+
+    bucket_boundaries = [x for x in range(50, 500, 50)]
+    seq_len, outputs_b = tf.contrib.training.bucket_by_sequence_length(
+        lengths_t, tensors=[u_idx_t, v_idx_t, r_t, input_t, lengths_t],
+        allow_smaller_final_batch=True, \
+        batch_size=batch_size, bucket_boundaries=bucket_boundaries, \
+        capacity=capacity, dynamic_pad=True)
+    u_idx = tf.squeeze(outputs_b[0], [1], name="U_matrix")
+    v_idx = tf.squeeze(outputs_b[1], [1], name="V_matrix")
+    r = tf.squeeze(outputs_b[2], [1], name='R_target')
+    input_text = tf.squeeze(outputs_b[3], [1], name="Input_text")
+    seq_lengths = tf.squeeze(outputs_b[4], [1], name="seq_lengths")
+    return u_idx,v_idx,r,input_text,seq_lengths

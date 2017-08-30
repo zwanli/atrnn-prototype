@@ -380,26 +380,26 @@ class DataParser(object):
         else:
             return self.words_count
 
-    def split_warm_start(self,folds):
-
+    def split_warm_start_user(self,folds):
         idx = np.arange(0,self.paper_count)
         self.test_ratings = [[[] for u in range(self.user_count)]for x in range(folds)]
         self.train_ratings = [[[] for u in range(self.user_count)] for x in range(folds)]
-        items_count = np.sum(self.ratings, axis=0,dtype=int)
+        items_frequency = np.sum(self.ratings, axis=0,dtype=int)
         always_in_train=[]
-        for i, count in enumerate(items_count):
+        for i, count in enumerate(items_frequency):
             if count < self.paper_count_threshold:
                 always_in_train.append(i)
         for user in range(self.user_count):
             rated_items_indices = self.ratings[user].nonzero()[0]
             # Shuffle all rated items indices
+            np.random.seed(0)
             np.random.shuffle(rated_items_indices)
             item_per_fold = len(rated_items_indices)/ folds
             for fold in range(folds):
                 start = int( fold * item_per_fold)
                 end = int((fold + 1) * item_per_fold)
                 if fold == folds - 1:
-                    end = len(idx) - 1
+                    end = len(idx)
                 u_test_indices = rated_items_indices[start:end]
                 u_test_indices = [i for i in u_test_indices if i not in always_in_train]
                 # mask = np.ones(len(rated_items_indices), dtype=bool)
@@ -407,13 +407,80 @@ class DataParser(object):
                 # train_idx = rated_items_indices[mask]
                 u_train_indices = [i for i in rated_items_indices if i not in u_test_indices]
                 assert (len(u_test_indices) + len(u_train_indices) == len(rated_items_indices))
-                self.train_ratings[fold][user] = u_train_indices
-                self.test_ratings[fold][user] = u_test_indices
+                self.train_ratings[fold][user] = u_train_indices.sort()
+                self.test_ratings[fold][user] = u_test_indices.sort()
         return self.train_ratings,self.test_ratings
+
+    def split_warm_start_item(self, folds):
+        #List of lists to store test ratings.
+        #A list of size fold, where each item is a list that contains a list of size paper_count
+        #It has the shape [folds,items,users]
+        test_ratings_item = [[[] for i in range(self.paper_count)] for x in range(folds)]
+        # List of lists to store train ratings.
+        # A list of size fold, where each  item is a list that contains a list of size paper_count
+        train_ratings_item = [[[] for i in range(self.paper_count)] for x in range(folds)]
+        items_with_users_bigger_folds = 0
+        for item in range(self.paper_count):
+            # List of users ids that rated the item
+            rated_items_indices = self.ratings[:,item].nonzero()[0]
+            #Check if the number of users who rated this item is less than the number of folds
+            if len(rated_items_indices) < folds:
+                for fold in range(folds):
+                    #Always add to train
+                    train_ratings_item[fold][item] = rated_items_indices
+            else:
+                items_with_users_bigger_folds+= 1
+                # Shuffle all rated items indices
+                np.random.seed(0)
+                np.random.shuffle(rated_items_indices)
+                item_per_fold = len(rated_items_indices) / folds
+                for fold in range(folds):
+                    #calculate the start and the end of the split for each fold
+                    start = int(fold * item_per_fold)
+                    end = int((fold + 1) * item_per_fold)
+                    if fold == folds - 1:
+                        end = len(rated_items_indices)
+                    #indices of the users in test
+                    item_test_indices = rated_items_indices[start:end]
+                    # mask = np.ones(len(rated_items_indices), dtype=bool)
+                    # mask[[item_test_indices]] = False
+                    # item_train_indices = rated_items_indices[mask]
+                    # indices of the users in train
+                    item_train_indices = [i for i in rated_items_indices if i not in item_test_indices]
+                    train_ratings_item[fold][item] = item_train_indices
+                    test_ratings_item[fold][item] = item_test_indices
+
+        print('Items w/ users bigger than {0}: {1}  '.format(folds,items_with_users_bigger_folds))
+        # A list of size fold, where each item is a list that contains a list of size user_count
+        # It has the shape [folds,users,items]
+        test_ratings_user = [[[] for i in range(self.user_count)] for x in range(folds)]
+        # List of lists to store train ratings.
+        # A list of size fold, where each  item is a list that contains a list of size user_count
+        train_ratings_user = [[[] for i in range(self.user_count)] for x in range(folds)]
+
+        #convert the train_ratings and test ratings from [fold,item,user] to [fold,user,item]
+        for fold in range(folds):
+            ratings = np.zeros((self.user_count, self.paper_count),dtype=np.int32)
+            for i, item in enumerate(train_ratings_item[fold]):
+                for user in item:
+                    train_ratings_user[fold][user].append(i)
+            for i, item in enumerate(test_ratings_item[fold]):
+                for user in item:
+                    test_ratings_user[fold][user].append(i)
+
+            #sort the items indices
+            for user in range(self.user_count):
+                train_ratings_user[fold][user].sort()
+                test_ratings_user[fold][user].sort()
+
+        self.train_ratings = train_ratings_user
+        self.test_ratings = test_ratings_user
+        return self.train_ratings, self.test_ratings
 
     def split_cold_start(self, folds):
         item_per_fold = self.paper_count / folds
         idx = np.arange(0,self.paper_count)
+        np.random.seed(0)
         np.random.shuffle(idx)
         test_ratings = [[[] for u in range(self.user_count)]for x in range(folds)]
         train_ratings = [[[] for u in range(self.user_count)] for x in range(folds)]
@@ -426,7 +493,7 @@ class DataParser(object):
             start = int(fold *item_per_fold)
             end = int ((fold+1) *item_per_fold)
             if fold == folds -1:
-                end = len(idx)-1
+                end = len(idx)
             test_idx = idx[start:end]
             test_idx = [i for i in test_idx if i not in always_in_train]
             mask = np.ones(self.paper_count, dtype=bool)
@@ -437,14 +504,21 @@ class DataParser(object):
                 rated_items_indices = self.ratings[user].nonzero()[0]
                 u_train_indices = np.intersect1d(train_idx,rated_items_indices)
                 u_test_indices = np.intersect1d(test_idx,rated_items_indices)
-                train_ratings[fold][user] = u_train_indices
-                test_ratings[fold][ user] = u_test_indices
-        return train_ratings,test_ratings
+                train_ratings[fold][user] = u_train_indices.sort()
+                test_ratings[fold][ user] = u_test_indices.sort()
+        self.train_ratings = train_ratings
+        self.test_ratings = test_ratings
+        return self.train_ratings,self.test_ratings
 
-    def generate_batches(self,batch_size,train=True, validation=False,test=False):
-        ratings = np.zeros((self.user_count, self.paper_count))
-        fold = 0
-        for i, u in enumerate(self.train_ratings[fold]):
+    def generate_samples(self, batch_size,fold, train=True, validation=False, test=False):
+        ratings = np.zeros((self.user_count, self.paper_count),dtype=np.int32)
+
+        if test:
+            ratings_ = self.test_ratings
+        elif train:
+            ratings_ = self.train_ratings
+
+        for i, u in enumerate(ratings_[fold]):
                 for v in u:
                     ratings[i][v]=1
 
@@ -465,7 +539,10 @@ class DataParser(object):
             docs = []
             docs = [self.all_documents[x] for x in v_idx]
             docs = np.array(docs)
-            yield u_idx, v_idx, r, docs
+            if batch_size > 1:
+                yield u_idx, v_idx, r, docs
+            else:
+                yield u_idx[0], v_idx[0], r[0], docs[0]
         # return True
 
     def get_test_idx(self):

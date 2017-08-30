@@ -74,7 +74,7 @@ class CustomRunner(object):
         #     sess.run(self.input_enqueue_op, feed_dict={
         #         self.input_text: docs[i], self.seq_lengths: len(docs[i]),
         #         self.u_idx: u_idx[i], self.v_idx: v_idx[i], self.r: ratings[i]})
-        for u_idx, v_idx, ratings, docs in self.data_loader.generate_batches(1,validation=validation,test=test):
+        for u_idx, v_idx, ratings, docs in self.data_loader.generate_samples(1, validation=validation, test=test):
             sess.run(self.input_enqueue_op, feed_dict={
                 self.input_text: docs, self.seq_lengths: get_lengths(docs),
                 self.u_idx: u_idx, self.v_idx: v_idx, self.r: ratings})
