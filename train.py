@@ -35,11 +35,11 @@ def num_samples(path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default='/home/wanliz/data/Extended_ctr',
+    parser.add_argument('--data_dir', type=str, default='/home/wanli/data/Extended_ctr',
                         help='data directory containing input.txt')
     parser.add_argument("--dataset", "-d", type=str, default='dummy',
                         help="Which dataset to use", choices=['dummy', 'citeulike-a', 'citeulike-t'])
-    parser.add_argument('--embedding_dir', type=str, default='/home/wanliz/data/glove.6B/',
+    parser.add_argument('--embedding_dir', type=str, default='/home/wanli/data/glove.6B/',
                         help='GloVe embedding directory containing embeddings file')
     parser.add_argument('--embedding_dim', type=int, default=200,
                         help='dimension of the embeddings', choices=['50', '100', '200', '300'])
@@ -56,7 +56,7 @@ def main():
                         help='number of layers in the RNN')
     parser.add_argument('--model', type=str, default='gru',
                         help='Choose the RNN cell type', choices=['rnn, gru, or lstm'])
-    parser.add_argument('--batch_size', type=int, default=128,
+    parser.add_argument('--batch_size', type=int, default=32,
                         help='minibatch size')
     parser.add_argument('--max_length', type=int, default=1000,
                         help='Maximum document length')
@@ -155,16 +155,15 @@ def train(args):
     # # Add ops to save and restore all the variables.
     # saver = tf.train.Saver()
 
-    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.gpu_mem)
-
-
     def construct_feed(bi_hid_fw, bi_hid_bw):
         return {model.init_state_fw: bi_hid_fw, model.init_state_bw: bi_hid_bw}
                 # model.initial_state: hid_state,
 
+    config = tf.ConfigProto()
+    config.gpu_options.allocator_type = 'BFC'
 
     n_steps = args.num_epochs
-    with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options),graph=graph) as sess:
+    with tf.Session(config=config,graph=graph) as sess:
         print('Saving graph to disk...')
         # train_writer.add_graph(sess.graph)
         # valid_writer.add_graph(sess.graph)
