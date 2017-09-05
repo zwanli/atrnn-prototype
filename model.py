@@ -281,8 +281,8 @@ def get_input_test(filenames,batch_size):
 def get_input_dataset(train_filename,test_filename,batch_size):
     with tf.device("/cpu:0"):
         with tf.variable_scope('input'):
-            test_filename = '/home/wanli/data/Extended_ctr/dummy_test_1.tfrecords'
-            train_filename = '/home/wanli/data/Extended_ctr/dummy_train_1.tfrecords'
+            # test_filename = '/home/wanli/data/Extended_ctr/dummy_test_1.tfrecords'
+            # train_filename = '/home/wanli/data/Extended_ctr/dummy_train_1.tfrecords'
 
             # Creates a dataset that reads all of the examples from filenames.
             validation_dataset = tf.contrib.data.TFRecordDataset(test_filename)
