@@ -4,7 +4,6 @@ import numpy as np
 import os
 from utils import read_and_decode
 
-
 def weight_variable(shape, name):
     initial = tf.truncated_normal(shape, stddev=0.001)
     return tf.Variable(initial, name=name)
@@ -14,7 +13,7 @@ def bias_variable(shape, name):
     return tf.get_variable(name, shape, initializer=b_init)
 
 class Model():
-    def __init__(self, args, M, embed,filename, reg_lambda=0.01,random_shuffl=False,name='tr'):
+    def __init__(self, args, M, embed,train_filename,test_filename, reg_lambda=0.01,name='tr'):
         self.args = args
         self.dataset = args.dataset
         if args.model == 'rnn':
@@ -39,11 +38,16 @@ class Model():
         # self.v_idx = tf.placeholder(tf.int32, [None],name="V_matrix")
         # self.r = tf.placeholder(tf.float32, [None],name="R_target")
 
-        with tf.device("/cpu:0"):  # with tf.device("/cpu:0"):
-            self.u_idx,self.v_idx, self.r, self.input_text, self.seq_lengths\
-                = get_inputs(filename,batch_size=self.batch_size)
-            
+
+        outputs,init_ops = get_input_dataset(train_filename,test_filename,batch_size=self.batch_size)
+        self.u_idx,self.v_idx, self.r, self.input_text, self.seq_lengths = outputs
+        self.train_init_op, self.validation_init_op = init_ops
+
+        # with tf.device("/cpu:0"):  # with tf.device("/cpu:0"):
+        #     self.u_idx,self.v_idx, self.r, self.input_text, self.seq_lengths\
+            #         = get_inputs(filename,batch_size=self.batch_size)
         # self.batch_size = tf.placeholder(tf.int32,[], name="batch_size")
+
         self.batch_pointer = tf.Variable(0, name="batch_pointer", trainable=False, dtype=tf.int32)
         self.inc_batch_pointer_op = tf.assign(self.batch_pointer, self.batch_pointer + 1)
         self.epoch_pointer = tf.Variable(0, name="epoch_pointer", trainable=False)
@@ -141,7 +145,7 @@ class Model():
         self.reg_loss = tf.add(self.l2_loss, self.reg)
 
         self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
-        # self.train_step = self.optimizer.minimize(self.reg_loss)
+
         self.train_step_u = self.optimizer.minimize(self.reg_loss, var_list=[self.U, self.U_bias])
         self.train_step_v = self.optimizer.minimize(self.reg_loss, var_list=[self.V, self.V_bias])
 
@@ -226,3 +230,82 @@ def get_inputs(filename,batch_size,test=False):
     input_text = tf.squeeze(outputs_b[3], [1], name="Input_text")
     seq_lengths = tf.squeeze(outputs_b[4], [1], name="seq_lengths")
     return u_idx,v_idx,r,input_text,seq_lengths
+
+
+def _parse_function(sequence_example_proto):
+        context_feature = {'u': tf.FixedLenFeature([], tf.int64),
+                           'v': tf.FixedLenFeature([], tf.int64),
+                           'r': tf.FixedLenFeature([], tf.int64),
+                           'abs_length': tf.FixedLenFeature([], tf.int64)}
+
+        sequence_feature = {'abstract': tf.FixedLenSequenceFeature([], tf.int64)}
+
+        # Decode the record read by the reader
+        context_feature, sequence_feature = tf.parse_single_sequence_example(sequence_example_proto,
+                                                                             context_features=context_feature,
+                                                                             sequence_features=sequence_feature)
+        u = tf.cast(context_feature['u'], tf.int32)
+        v = tf.cast(context_feature['v'], tf.int32)
+        r = tf.cast(context_feature['r'], tf.float32)
+        abs_length = tf.cast(context_feature['abs_length'], tf.int32)
+        abstract = tf.cast(sequence_feature['abstract'], tf.int32)
+        return u, v, r, abstract, abs_length
+
+def get_input_test(filenames,batch_size):
+    # Creates a dataset that reads all of the examples from filenames.
+    dataset = tf.contrib.data.TFRecordDataset(filenames)
+
+    # Repeat the input indefinitely.
+    dataset = dataset.repeat()
+    # Parse the record into tensors.
+    dataset = dataset.map(_parse_function)
+    # Shuffle the dataset
+    dataset = dataset.shuffle(buffer_size=10000)
+    # Generate batches
+    # dataset = dataset.batch(128)
+
+    # iterator = dataset.make_initializable_iterator()
+    # print(dataset.output_types)  # ==> (tf.float32, (tf.float32, tf.int32))
+    # print(dataset.output_shapes)  # ==> "(10, ((), (100,)))"
+
+    dataset = dataset.padded_batch(batch_size, padded_shapes=((), (), (), [None], ()))
+    # Create a one-shot iterator
+    iterator = dataset.make_one_shot_iterator()
+    next_element = iterator.get_next()
+
+    # with tf.Session() as sess:
+    #     for i in range(100):
+    #         record = sess.run(next_element)
+    return next_element
+
+def get_input_dataset(train_filename,test_filename,batch_size):
+    with tf.device("/cpu:0"):
+        with tf.variable_scope('input'):
+            test_filename = '/home/wanli/data/Extended_ctr/dummy_test_1.tfrecords'
+            train_filename = '/home/wanli/data/Extended_ctr/dummy_train_1.tfrecords'
+
+            # Creates a dataset that reads all of the examples from filenames.
+            validation_dataset = tf.contrib.data.TFRecordDataset(test_filename)
+            training_dataset = tf.contrib.data.TFRecordDataset(train_filename)
+
+            # validation_dataset = validation_dataset.repeat()
+            # training_dataset = training_dataset.repeat()
+
+            validation_dataset = validation_dataset.map(_parse_function)
+            training_dataset = training_dataset.map(_parse_function)
+
+            training_dataset = training_dataset.padded_batch(batch_size, padded_shapes=((), (), (), [None], ()))
+            validation_dataset = validation_dataset.padded_batch(batch_size, padded_shapes=((), (), (), [None], ()))
+
+            # A reinitializable iterator is defined by its structure. We could use the
+            # `output_types` and `output_shapes` properties of either `training_dataset`
+            # or `validation_dataset` here, because they are compatible.
+            iterator = tf.contrib.data.Iterator.from_structure(training_dataset.output_types,
+                                                               training_dataset.output_shapes)
+
+            training_init_op = iterator.make_initializer(training_dataset)
+            validation_init_op = iterator.make_initializer(validation_dataset)
+
+            next_element = iterator.get_next()
+
+            return next_element, (training_init_op,validation_init_op)

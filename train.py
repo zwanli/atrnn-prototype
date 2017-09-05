@@ -9,7 +9,8 @@ from data_parser import DataParser
 import utils
 from model import Model
 from utils import convert_to_tfrecords
-
+from eval import evaluate
+import math
 
 def load_abstracts(parser,dataset):
     if os.path.exists('abstracts_word_embeddings_{}.pkl'.format(dataset)):
@@ -34,7 +35,7 @@ def num_samples(path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default='/home/wanliz/data/Extended_ctr/',
+    parser.add_argument('--data_dir', type=str, default='/home/wanliz/data/Extended_ctr',
                         help='data directory containing input.txt')
     parser.add_argument("--dataset", "-d", type=str, default='dummy',
                         help="Which dataset to use", choices=['dummy', 'citeulike-a', 'citeulike-t'])
@@ -121,30 +122,38 @@ def train(args):
         path_t = os.path.join(args.data_dir, args.dataset+ '_test_{0}.tfrecords'.format(fold))
         print('Total number of test  samples in fold {0}: {1}'.format(fold,num_samples(path_t)))
 
+    example_count_train = utils.num_samples(path_tr)
+    example_count_validation = utils.num_samples(path_t)
 
-    model = Model(args, parser.get_ratings_matrix(),parser.embeddings,path_tr)
-
+    nb_batches_train = int(math.ceil(example_count_train / args.batch_size))
+    print('Number of training batches {0}, number of samples {1}'.format(nb_batches_train, example_count_train))
+    nb_batches_val = int(math.ceil(example_count_validation / args.batch_size))
+    print('Number of validation batches {0}, number of samples {1}'.format(nb_batches_val, example_count_validation))
 
     print('Vocabolary size {0}'.format(parser.words_count))
     print("Uknown words {0}".format(parser.unkows_words_count))
     print("Uknown numbers {0}".format(parser.numbers_count))
 
     dir_prefix = time.strftime("%d:%m-%H:%M:")
-    train_writer = tf.summary.FileWriter(args.log_dir+ '/{0}-train'.format(dir_prefix))
-    valid_writer = tf.summary.FileWriter(args.log_dir + '/{0}-validation'.format(time.strftime(dir_prefix)))
-    test_writer = tf.summary.FileWriter(args.log_dir + '/{0}-test'.format(time.strftime(dir_prefix)))
-
-    #Checkpoints directory
-    ckpt_dir = os.path.join(args.log_dir,'checkpoints/{0}-train'.format(dir_prefix))
+    # Checkpoints directory
+    ckpt_dir = os.path.join(args.log_dir, 'checkpoints/{0}-train'.format(dir_prefix))
 
     best_val_rmse = np.inf
     best_val_mae = np.inf
     best_test_rmse = 0
     best_test_mae = 0
 
-    evaluator = Evaluator(parser.get_ratings_matrix(),verbose=True)
-    # Add ops to save and restore all the variables.
-    saver = tf.train.Saver()
+    evaluator = Evaluator(parser.get_ratings_matrix(), verbose=True)
+
+    graph = tf.Graph()
+    with graph.as_default():
+        model = Model(args, parser.get_ratings_matrix(),parser.embeddings,path_tr,path_t)
+        train_writer = tf.summary.FileWriter(args.log_dir+ '/{0}-train'.format(dir_prefix))
+        valid_writer = tf.summary.FileWriter(args.log_dir + '/{0}-validation'.format(time.strftime(dir_prefix)))
+        test_writer = tf.summary.FileWriter(args.log_dir + '/{0}-test'.format(time.strftime(dir_prefix)))
+
+    # # Add ops to save and restore all the variables.
+    # saver = tf.train.Saver()
 
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.gpu_mem)
 
@@ -155,23 +164,33 @@ def train(args):
 
 
     n_steps = args.num_epochs
-    with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
+    with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options),graph=graph) as sess:
         print('Saving graph to disk...')
-        train_writer.add_graph(sess.graph)
+        # train_writer.add_graph(sess.graph)
         # valid_writer.add_graph(sess.graph)
         # test_writer.add_graph(sess.graph)
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
-        coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(sess, coord)
+        # coord = tf.train.Coordinator()
+        # threads = tf.train.start_queue_runners(sess, coord)
 
         bi_state_fw = sess.run(model.init_state_bw)
         bi_state_bw = sess.run(model.init_state_fw)
         h_state = sess.run(model.initial_state)
 
+        # for op in tf.get_default_graph().get_operations():
+        #     print (str(op.name))
+        # print('--------------------')
+        # for n in tf.get_default_graph().as_graph_def().node:
+        #     print(n.name)
         try:
             for step in range(n_steps):
-                    feed = construct_feed(bi_state_fw, bi_state_bw)
+                print('Epoch {0}'.format(step))
+                print('Training .....................................')
+                # Initialize the training dataset iterator
+                sess.run(model.train_init_op)
+                feed = construct_feed(bi_state_fw, bi_state_bw)
+                for _ in range(nb_batches_train):
                     sess.run(model.train_step_v, feed_dict=feed)
                     sess.run(model.train_step_u, feed_dict=feed)
                     _, U, V, U_b, V_b, bi_out_fw, bi_out_bw, final_state, rmse, mae, summary_str = sess.run(
@@ -183,13 +202,17 @@ def train(args):
                     train_writer.add_summary(summary_str, step)
 
 
-                    # save a checkpoint (every 500 batches)
-                    if False and step // 10 % 50 == 0:
-                        saved_file = saver.save(sess, ckpt_dir, global_step=step)
-                        print("Saved file: " + saved_file)
+                # save a checkpoint (every 500 batches)
+                if False and step // 10 % 5 == 0:
+                    print('Validation .....................................')
+                    # saved_file = model.saver.save(sess, ckpt_dir, global_step=step)
+                    # print("Saved file: " + saved_file)
 
-
-
+                    # evaluate(saved_file,parser.get_ratings_matrix(),args,parser.embeddings,test_writer)
+                    #Initialize the validation dataset iterator
+                    sess.run(model.validation_init_op)
+                    for _ in range(nb_batches_val):
+                        print('validation')
                         # test_u_idx, test_v_idx, test_m, test_docs, test_ratings = parser.get_test_idx()
                         # test_docs, test_docs_len = utils.static_padding(test_docs, maxlen=300)
                         #
@@ -244,14 +267,14 @@ def train(args):
                         #     # best_val_mae = mae_valid
                         #     best_test_mae = mae_test
 
-                    # loop state around
-                    h_state = final_state
-                    bi_state_fw = bi_out_fw
-                    bi_state_bw = bi_out_bw
-                    # if step > 0 and (step % args.save_every == 0 or ( step == args.num_epochs - 1)):  # save for the last result
-                    #     checkpoint_path = os.path.join(args.save_dir, 'model.ckpt')
-                    #     saver.save(sess, checkpoint_path, global_step=step)
-                    #     print("model saved to {}".format(checkpoint_path))
+                # loop state around
+                h_state = final_state
+                bi_state_fw = bi_out_fw
+                bi_state_bw = bi_out_bw
+                # if step > 0 and (step % args.save_every == 0 or ( step == args.num_epochs - 1)):  # save for the last result
+                #     checkpoint_path = os.path.join(args.save_dir, 'model.ckpt')
+                #     saver.save(sess, checkpoint_path, global_step=step)
+                #     print("model saved to {}".format(checkpoint_path))
             model.saver.save(sess, args.log_dir + "/{0}model.ckpt".format(time.strftime(dir_prefix)))
             print('Best test rmse:', best_test_rmse, 'Best test mae', best_test_mae, sep=' ')
             # restore model
@@ -286,10 +309,11 @@ def train(args):
             test_writer.close()
         except Exception as e:
             # Report exceptions to the coordinator.
-            coord.request_stop(e)
+            print(e)
+            # coord.request_stop(e)
             print("Finished training")
-        finally:
-            coord.request_stop()
-            coord.join(threads)
+        # finally:
+        #     coord.request_stop()
+        #     coord.join(threads)
 if __name__ == '__main__':
     main()
