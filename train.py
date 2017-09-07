@@ -165,7 +165,7 @@ def train(args):
     n_steps = args.num_epochs
     with tf.Session(config=config,graph=graph) as sess:
         print('Saving graph to disk...')
-        # train_writer.add_graph(sess.graph)
+        train_writer.add_graph(sess.graph)
         # valid_writer.add_graph(sess.graph)
         # test_writer.add_graph(sess.graph)
         tf.global_variables_initializer().run()
@@ -206,7 +206,7 @@ def train(args):
 
 
                 if False and step // 10 % 5 == 0:
-                    print('{0}:Validation ............'.format(time.strftime("%d:%m-%H:%M:")))
+                    print('{0}:Validation ............'.format(time.strftime("%d:%m-%H:%M:" )))
 
                     # save a checkpoint (every 500 batches)
                     if step // 10%50 == 0:
