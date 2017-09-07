@@ -476,8 +476,8 @@ def test_4():
             validation_dataset = tf.contrib.data.TFRecordDataset(test_filename)
             training_dataset = tf.contrib.data.TFRecordDataset(train_filename)
 
-            # validation_dataset = validation_dataset.repeat()
-            # training_dataset = training_dataset.repeat()
+            validation_dataset = validation_dataset.repeat()
+            training_dataset = training_dataset.repeat()
 
             validation_dataset = validation_dataset.map(_parse_function)
             training_dataset = training_dataset.map(_parse_function)

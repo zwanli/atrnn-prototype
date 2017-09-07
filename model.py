@@ -177,9 +177,11 @@ class Model():
         ndcg_5_sum = tf.summary.scalar('ndcg@5',self.ndcg_5)
         ndcg_10_sum = tf.summary.scalar('ndcg@10',self.ndcg_10)
 
+        self.mrr_10 = tf.Variable(0, trainable=False,dtype=tf.float32)
+        mrr_10_sum = tf.summary.scalar('mrr@10', self.mrr_10)
 
         self.eval_metrics = tf.summary.merge((recall_sum,recall_10_sum,recall_50_sum,recall_100_sum,recall_200_sum,
-                                             ndcg_5_sum, ndcg_10_sum))
+                                             ndcg_5_sum, ndcg_10_sum,mrr_10_sum))
 
 
 
@@ -288,8 +290,8 @@ def get_input_dataset(train_filename,test_filename,batch_size):
             validation_dataset = tf.contrib.data.TFRecordDataset(test_filename)
             training_dataset = tf.contrib.data.TFRecordDataset(train_filename)
 
-            # validation_dataset = validation_dataset.repeat()
-            # training_dataset = training_dataset.repeat()
+            validation_dataset = validation_dataset.repeat()
+            training_dataset = training_dataset.repeat()
 
             validation_dataset = validation_dataset.map(_parse_function)
             training_dataset = training_dataset.map(_parse_function)

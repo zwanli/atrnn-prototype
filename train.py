@@ -170,8 +170,8 @@ def train(args):
         # test_writer.add_graph(sess.graph)
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
-        # coord = tf.train.Coordinator()
-        # threads = tf.train.start_queue_runners(sess, coord)
+
+        test_ratings = utils.get_test_ratings_matrix(path_t,parser.user_count,parser.paper_count,sess)
 
         bi_state_fw = sess.run(model.init_state_bw)
         bi_state_bw = sess.run(model.init_state_fw)
@@ -189,7 +189,8 @@ def train(args):
                 # Initialize the training dataset iterator
                 sess.run(model.train_init_op)
                 feed = construct_feed(bi_state_fw, bi_state_bw)
-                for _ in range(nb_batches_train):
+
+                for batch in range(nb_batches_train):
                     sess.run(model.train_step_v, feed_dict=feed)
                     sess.run(model.train_step_u, feed_dict=feed)
                     _, U, V, U_b, V_b, bi_out_fw, bi_out_bw, final_state, rmse, mae, summary_str = sess.run(
@@ -199,72 +200,72 @@ def train(args):
                          model.RMSE, model.MAE, model.summary_op],
                         feed_dict=feed)
                     train_writer.add_summary(summary_str, step)
+                    if batch // 10 % 50 == 0:
+                        print("Epoch {0}, batch {1}".format(step,batch))
 
 
-                # save a checkpoint (every 500 batches)
+
                 if False and step // 10 % 5 == 0:
                     print('Validation .....................................')
-                    # saved_file = model.saver.save(sess, ckpt_dir, global_step=step)
-                    # print("Saved file: " + saved_file)
 
-                    # evaluate(saved_file,parser.get_ratings_matrix(),args,parser.embeddings,test_writer)
+                    # save a checkpoint (every 500 batches)
+                    if step // 10%50 == 0:
+                        saved_file = model.saver.save(sess, ckpt_dir, global_step=step)
+                        print("Saved file: " + saved_file)
+
                     #Initialize the validation dataset iterator
                     sess.run(model.validation_init_op)
                     for _ in range(nb_batches_val):
-                        print('validation')
-                        # test_u_idx, test_v_idx, test_m, test_docs, test_ratings = parser.get_test_idx()
-                        # test_docs, test_docs_len = utils.static_padding(test_docs, maxlen=300)
-                        #
-                        # test_bi_fw = sess.run(model.init_state_fw, feed_dict={model.batch_size: test_docs.shape[0]})
-                        # test_bi_bw = sess.run(model.init_state_bw, feed_dict={model.batch_size: test_docs.shape[0]})
-                        # init_state = sess.run(model.initial_state, feed_dict={model.batch_size: test_docs.shape[0]})
-                        # feed_dict = construct_feed(test_bi_fw, test_bi_bw)
-                        # rmse_test, mae_test, summary_str = sess.run(
-                        #     [model.RMSE, model.MAE, model.summary_op], feed_dict=feed_dict)
-                        #
-                        # test_writer.add_summary(summary_str, step)
-                        #
-                        # prediction_matrix = np.matmul(U, V.T)
-                        # prediction_matrix = np.add(prediction_matrix, np.reshape(U_b, [-1, 1]))
-                        # prediction_matrix = np.add(prediction_matrix, V_b)
-                        # rounded_predictions = utils.rounded_predictions(prediction_matrix)
-                        #
-                        # evaluator.load_top_recommendations_2(200, prediction_matrix, test_ratings)
-                        # recall_10 = evaluator.recall_at_x(10, prediction_matrix, parser.ratings, rounded_predictions)
-                        # recall_50 = evaluator.recall_at_x(50, prediction_matrix, parser.ratings, rounded_predictions)
-                        # recall_100 = evaluator.recall_at_x(100, prediction_matrix, parser.ratings, rounded_predictions)
-                        # recall_200 = evaluator.recall_at_x(200, prediction_matrix, parser.ratings, rounded_predictions)
-                        # recall = evaluator.calculate_recall(ratings=parser.ratings, predictions=rounded_predictions)
-                        # ndcg_at_five = evaluator.calculate_ndcg(5, rounded_predictions)
-                        # ndcg_at_ten = evaluator.calculate_ndcg(10, rounded_predictions)
-                        #
-                        # feed = {model.recall: recall, model.recall_10: recall_10, model.recall_50: recall_50,
-                        #         model.recall_100: recall_100, model.recall_200: recall_200,
-                        #         model.ndcg_5: ndcg_at_five, model.ndcg_10: ndcg_at_ten}
-                        # eval_metrics = sess.run([model.eval_metrics], feed_dict=feed)
-                        # test_writer.add_summary(eval_metrics[0], step)
-                        #
-                        # print("Step {0} | Train RMSE: {1:3.4f}, MAE: {2:3.4f}".format(
-                        #     step, rmse, mae))
-                        # # print("         | Valid  RMSE: {0:3.4f}, MAE: {1:3.4f}".format(
-                        # #     rmse_valid, mae_valid))
-                        # print("         | Test  RMSE: {0:3.4f}, MAE: {1:3.4f}".format(
-                        #     rmse_test, mae_test))
-                        # print("         | Recall@10: {0:3.4f}".format(recall_10))
-                        # print("         | Recall@50: {0:3.4f}".format(recall_50))
-                        # print("         | Recall@100: {0:3.4f}".format(recall_100))
-                        # print("         | Recall@200: {0:3.4f}".format(recall_200))
-                        # print("         | Recall: {0:3.4f}".format(recall))
-                        # print("         | ndcg@5: {0:3.4f}".format(ndcg_at_five))
-                        # print("         | ndcg@10: {0:3.4f}".format(ndcg_at_ten))
-                        #
-                        # if best_val_rmse > rmse_test:
-                        #     # best_val_rmse = rmse_valid
-                        #     best_test_rmse = rmse_test
-                        #
-                        # if best_val_mae > rmse_test:
-                        #     # best_val_mae = mae_valid
-                        #     best_test_mae = mae_test
+                        test_bi_fw = sess.run(model.init_state_fw)
+                        test_bi_bw = sess.run(model.init_state_bw)
+                        init_state = sess.run(model.initial_state)
+                        feed_dict = construct_feed(test_bi_fw, test_bi_bw)
+                        rmse_test, mae_test, summary_str = sess.run(
+                            [model.RMSE, model.MAE, model.summary_op], feed_dict=feed_dict)
+                        test_writer.add_summary(summary_str, step)
+
+                    prediction_matrix = np.matmul(U, V.T)
+                    prediction_matrix = np.add(prediction_matrix, np.reshape(U_b, [-1, 1]))
+                    prediction_matrix = np.add(prediction_matrix, V_b)
+                    rounded_predictions = utils.rounded_predictions(prediction_matrix)
+                    evaluator.load_top_recommendations_2(200, prediction_matrix, test_ratings)
+                    recall_10 = evaluator.recall_at_x(10, prediction_matrix, parser.ratings, rounded_predictions)
+                    recall_50 = evaluator.recall_at_x(50, prediction_matrix, parser.ratings, rounded_predictions)
+                    recall_100 = evaluator.recall_at_x(100, prediction_matrix, parser.ratings, rounded_predictions)
+                    recall_200 = evaluator.recall_at_x(200, prediction_matrix, parser.ratings, rounded_predictions)
+                    recall = evaluator.calculate_recall(ratings=parser.ratings, predictions=rounded_predictions)
+                    ndcg_at_five = evaluator.calculate_ndcg(5, rounded_predictions)
+                    ndcg_at_ten = evaluator.calculate_ndcg(10, rounded_predictions)
+
+                    mrr_at_ten = evaluator.calculate_mrr(10,rounded_predictions)
+
+                    feed = {model.recall: recall, model.recall_10: recall_10, model.recall_50: recall_50,
+                            model.recall_100: recall_100, model.recall_200: recall_200,
+                            model.ndcg_5: ndcg_at_five, model.ndcg_10: ndcg_at_ten, model.mrr_10: mrr_at_ten}
+                    eval_metrics = sess.run([model.eval_metrics], feed_dict=feed)
+                    test_writer.add_summary(eval_metrics[0], step)
+
+                    print("Step {0} | Train RMSE: {1:3.4f}, MAE: {2:3.4f}".format(
+                        step, rmse, mae))
+                    # print("         | Valid  RMSE: {0:3.4f}, MAE: {1:3.4f}".format(
+                    #     rmse_valid, mae_valid))
+                    print("         | Test  RMSE: {0:3.4f}, MAE: {1:3.4f}".format(
+                        rmse_test, mae_test))
+                    print("         | Recall@10: {0:3.4f}".format(recall_10))
+                    print("         | Recall@50: {0:3.4f}".format(recall_50))
+                    print("         | Recall@100: {0:3.4f}".format(recall_100))
+                    print("         | Recall@200: {0:3.4f}".format(recall_200))
+                    print("         | Recall: {0:3.4f}".format(recall))
+                    print("         | ndcg@5: {0:3.4f}".format(ndcg_at_five))
+                    print("         | ndcg@10: {0:3.4f}".format(ndcg_at_ten))
+                    print("         | mrr@10: {0:3.4f}".format(mrr_at_ten))
+                    if best_val_rmse > rmse_test:
+                        # best_val_rmse = rmse_valid
+                        best_test_rmse = rmse_test
+
+                    if best_val_mae > rmse_test:
+                        # best_val_mae = mae_valid
+                        best_test_mae = mae_test
 
                 # loop state around
                 h_state = final_state
