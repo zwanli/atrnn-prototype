@@ -171,6 +171,7 @@ def train(args):
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
 
+        print("Getting test ratings matrix")
         test_ratings = utils.get_test_ratings_matrix(path_t,parser.user_count,parser.paper_count,sess)
 
         bi_state_fw = sess.run(model.init_state_bw)
