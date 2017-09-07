@@ -184,7 +184,7 @@ def train(args):
         #     print(n.name)
         try:
             for step in range(n_steps):
-                print('Epoch {0}'.format(step))
+                print('{0}: Epoch {1}'.format(time.strftime("%d:%m-%H:%M:"),step))
                 print('Training .....................................')
                 # Initialize the training dataset iterator
                 sess.run(model.train_init_op)
@@ -206,7 +206,7 @@ def train(args):
 
 
                 if False and step // 10 % 5 == 0:
-                    print('Validation .....................................')
+                    print('{0}:Validation ............'.format(time.strftime("%d:%m-%H:%M:")))
 
                     # save a checkpoint (every 500 batches)
                     if step // 10%50 == 0:
