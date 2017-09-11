@@ -258,11 +258,11 @@ def train(args):
                 train_writer.add_summary(summary_str, step)
 
 
-                if True :#and step // 10 % 5 == 0:
+                if True and step // 10 % 5 == 0:
                     print('{0}:Validation ............'.format(time.strftime("%d:%m-%H:%M:" )))
 
                     # save a checkpoint (every 500 batches)
-                    if step // 10%5 == 0 and step > 10 :
+                    if step // 10%50 == 0 and step > 10 :
                         saved_file = model.saver.save(sess, ckpt_dir, global_step=step)
                         print("Saved file: " + saved_file)
 
