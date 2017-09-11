@@ -12,27 +12,6 @@ from utils import convert_to_tfrecords
 from eval import evaluate
 import math
 
-def load_abstracts(parser,dataset):
-    if os.path.exists('abstracts_word_embeddings_{}.pkl'.format(dataset)):
-        print('Loading abstracts')
-        with open('abstracts_word_embeddings_{}.pkl'.format(dataset), 'rb') as f:
-            parser.all_documents = pickle.load(f)
-    else:
-        parser.get_papar_as_word_ids()
-        with open("abstracts_word_embeddings_{}.pkl".format(dataset),'wb') as f:
-            pickle.dump(parser.all_documents,f,pickle.HIGHEST_PROTOCOL)
-            print("Saved abstracts")
-
-
-def num_samples(path):
-    c = 0
-    for record in tf.python_io.tf_record_iterator(path):
-        example_proto = tf.train.SequenceExample()
-        example_proto.ParseFromString(record)
-        c += 1
-    return c
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, default='/home/wanli/data/Extended_ctr',
@@ -83,9 +62,30 @@ def main():
     #                         'model.ckpt-*'      : file(s) with model definition (created by tf)
     #                     """)
     args = parser.parse_args()
-
     train(args)
-    print('')
+
+
+def load_abstracts(parser,dataset):
+    if os.path.exists('abstracts_word_idx_{}.pkl'.format(dataset)):
+        print('Loading abstracts')
+        with open('abstracts_word_idx_{}.pkl'.format(dataset), 'rb') as f:
+            parser.all_documents = pickle.load(f)
+    else:
+        parser.get_papar_as_word_ids()
+        with open("abstracts_word_idx_{}.pkl".format(dataset),'wb') as f:
+            pickle.dump(parser.all_documents,f,pickle.HIGHEST_PROTOCOL)
+            print("Saved abstracts")
+    #delete raw data, save memory
+    parser.del_raw_data()
+
+def num_samples(path):
+    c = 0
+    for record in tf.python_io.tf_record_iterator(path):
+        example_proto = tf.train.SequenceExample()
+        example_proto.ParseFromString(record)
+        c += 1
+    return c
+
 
 def input(args,parser):
     # Read text input

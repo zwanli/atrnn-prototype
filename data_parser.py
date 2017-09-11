@@ -18,6 +18,8 @@ from prettytable import  PrettyTable
 from utils import _int64_feature
 from utils import _bytes_feature
 
+# import matplotlib
+# matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 '''
@@ -81,8 +83,7 @@ class DataParser(object):
         self.test_ratings = None
         self.process()
 
-        #empty space in the ram
-        del self.raw_data
+
 
     def process(self):
         """
@@ -191,43 +192,6 @@ class DataParser(object):
         if self.feature_labels is None:
             self.feature_labels, self.feature_matrix = self.parse_paper_features()
 
-        # journal_index = -1
-        # booktitle_index = -1
-        # series_index = -1
-        # for index, label in enumerate(self.feature_labels):
-        #     if label == 'type':
-        #         type_index = index
-        #     if label == 'journal':
-        #         journal_index = index
-        #     if label == 'booktitle':
-        #         booktitle_index = index
-        #     if label == 'series':
-        #         series_index = index
-        #     if label == 'publisher':
-        #         publisher_index = index
-        #     if label == 'year':
-        #         year_index = index
-        #     if label == 'address':
-        #         address_index = index
-        #
-        #
-        # unique_journal, counts_journal = np.unique(self.feature_matrix[:, journal_index], return_counts=True)
-        # unique_booktitle, counts_booktitle = np.unique(self.feature_matrix[:,booktitle_index], return_counts=True)
-        # unique_series, counts_series = np.unique(self.feature_matrix[:, series_index], return_counts=True)
-        # unique_year, counts_year = np.unique(self.feature_matrix[:, year_index], return_counts=True)
-        # unique_type, counts_type = np.unique(self.feature_matrix[:, type_index], return_counts=True)
-        # unique_publisher, counts_publisher = np.unique(self.feature_matrix[:, publisher_index], return_counts=True)
-        # unique_address, counts_address = np.unique(self.feature_matrix[:, address_index], return_counts=True)
-        #
-        # print('Number of unique journal {0}, frequency {1}'.format(len(unique_journal),counts_journal))
-        # print('Number of unique booktitle {0}, frequency {1}'.format(len(unique_booktitle), counts_booktitle))
-        # print('Number of unique series {0}, frequency {1}'.format(len(unique_series), counts_series))
-        # print('Number of unique year {0}, frequency {1}'.format(len(unique_year), counts_year))
-        # print('Number of unique type {0}, frequency {1}'.format(len(unique_type), counts_type))
-        # print('Number of unique publisher {0}, frequency {1}'.format(len(unique_publisher), counts_publisher))
-        # print('Number of unique address {0}, frequency {1}'.format(len(unique_address), counts_address))
-        #
-
         # A dict of tuples. First element of the tuple is the unique values of a the chosen attribute, the second is
         # their frequencies
         uniqe_freq = {}
@@ -264,9 +228,6 @@ class DataParser(object):
         # for feature in self.feature_labels:
         #     print('Number of unique {0} {1}, frequencies {2}'.format(feature,len(uniqe_freq[feature][0]), uniqe_freq[feature][1]))
         #     print('', end="")
-
-
-
 
     def load_embeddings(self):
         # Load pre-trained embeddings
@@ -469,6 +430,10 @@ class DataParser(object):
 
     def get_raw_data(self):
         return self.raw_labels, self.raw_data
+
+    def del_raw_data(self):
+        # empty space in the ram
+        del self.raw_data
 
     def get_feature_vector(self):
         return self.feature_labels, self.feature_matrix
