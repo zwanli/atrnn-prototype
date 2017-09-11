@@ -258,8 +258,8 @@ class DataParser(object):
         plt.xlabel("Value")
         plt.ylabel("Frequency")
 
-        fig = plt.gcf()
-        fig.savefig('attribute-per-paper-histogram')
+        #fig = plt.gcf()
+        plt.savefig('{0}attribute-per-paper-histogram_{1}'.format(self.dataset_folder+'/',self.dataset))
         print('')
         # for feature in self.feature_labels:
         #     print('Number of unique {0} {1}, frequencies {2}'.format(feature,len(uniqe_freq[feature][0]), uniqe_freq[feature][1]))

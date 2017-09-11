@@ -166,7 +166,7 @@ def input(args,parser):
 
 def train(args):
     # #Read text input
-    parser = DataParser(args.data_dir,args.dataset,None,
+    parser = DataParser(args.data_dir,args.dataset,'attributes',
                         use_embeddings=True,embed_dir=args.embedding_dir,embed_dim=args.embedding_dim)
     dataset_path,dataset_count = input(args,parser)
 
