@@ -2,7 +2,7 @@ import time
 import tensorflow as tf
 import numpy as np
 import argparse
-import os
+import os,errno
 from evaluator import Evaluator
 import pickle
 from data_parser import DataParser
@@ -45,7 +45,8 @@ def main():
                         help='dimension of the embeddings', choices=['50', '100', '200', '300'])
     parser.add_argument('--input_encoding', type=str, default=None,
                         help='character encoding of input.txt, from https://docs.python.org/3/library/codecs.html#standard-encodings')
-
+    parser.add_argument('--folds', type=int, default=5, help='Number of folds')
+    parser.add_argument('--split',type=str,default='warm', help='The splitting strategy',choices=['warm','cold'])
     parser.add_argument('--log_dir', type=str, default='logs',
                         help='directory containing tensorboard logs')
     parser.add_argument('--save_dir', type=str, default='save',
@@ -82,56 +83,108 @@ def main():
     #                         'model.ckpt-*'      : file(s) with model definition (created by tf)
     #                     """)
     args = parser.parse_args()
+
     train(args)
+    print('')
 
-
-def train(args):
-    #Read text input
-    parser = DataParser(args.data_dir,args.dataset,None,
-                        use_embeddings=True,embed_dir=args.embedding_dir,embed_dim=args.embedding_dim)
+def input(args,parser):
+    # Read text input
+    # parser = DataParser(args.data_dir, args.dataset, None,
+    #                     use_embeddings=True, embed_dir=args.embedding_dir, embed_dim=args.embedding_dim)
     parser.load_embeddings()
     args.vocab_size = parser.get_vocab_size()
 
-    folds = 5
-    path_train = os.path.join(args.data_dir, args.dataset+ '_train_0.tfrecords')
-    if os.path.exists(path_train):
-        print("File already exists {0}".format(path_train))
+    if args.dataset == 'citeulike-a':
+        dataset_folder = args.data_dir + '/citeulike_a_extended'
+    elif args.dataset == 'citeulike-t':
+        dataset_folder = args.data_dir + '/citeulike-t_extended'
+    elif args.dataset == 'dummy':
+        dataset_folder = args.data_dir + '/dummy'
     else:
-        if not parser.train_ratings:
-            load_abstracts(parser,args.dataset)
-            # parser.split_cold_start(5)
-            parser.split_warm_start_user(5)
-            # parser.split_warm_start_item(5)
-        convert_to_tfrecords(args.data_dir,parser,args.dataset,folds,args.max_length)
+        print("Warning: Given dataset not known, setting to dummy")
+        dataset_folder = args.data_dir + '/dummy'
 
-    path_test = os.path.join(args.data_dir, args.dataset+ '_test_0.tfrecords')
-    if os.path.exists(path_test):
-        print("File already exists {0}".format(path_test))
-    else:
-        if not parser.test_ratings:
-            load_abstracts(parser, args.dataset)
-            # parser.split_cold_start(5)
-            parser.split_warm_start_user(5)
-            # parser.split_warm_start_item(5)
-        convert_to_tfrecords(args.data_dir, parser, args.dataset,folds,args.max_length, test=True)
-    for fold in range(folds):
-        #Path of the training fold
-        path_tr = os.path.join(args.data_dir, args.dataset+ '_train_{0}.tfrecords'.format(fold))
-        print('Total number of train samples in fold {0}: {1}'.format(fold,num_samples(path_tr)))
-        #Path of the testing fold
-        path_t = os.path.join(args.data_dir, args.dataset+ '_test_{0}.tfrecords'.format(fold))
-        print('Total number of test  samples in fold {0}: {1}'.format(fold,num_samples(path_t)))
+    #A dict that has the paths of all the training/test files for all folds
+    all_folds_dataests ={}
 
-    example_count_train = utils.num_samples(path_tr)
-    example_count_validation = utils.num_samples(path_t)
+    train_folder = os.path.join(dataset_folder,'{0}-{1}'.format('warm' if args.split == 'warm' else 'cold','train'))
+    try:
+        os.makedirs(train_folder)
+    except OSError as e:
+        if e.errno != errno.EEXIST:
+            raise
+    test_folder = os.path.join(dataset_folder,'{0}-{1}'.format('warm' if args.split == 'warm' else 'cold','test'))
+    try:
+        os.makedirs(test_folder)
+    except OSError as e:
+        if e.errno != errno.EEXIST:
+            raise
+    for fold in range(args.folds):
+        train_file = os.path.join(train_folder,args.dataset + '_train_{0}.tfrecords'.format(fold))
+        if os.path.exists(train_file):
+            print("File already exists {0}".format(train_file))
+        else:
+            if not parser.train_ratings:
+                load_abstracts(parser, args.dataset)
+                if args.split == 'warm':
+                    parser.split_warm_start_item(args.folds)
+                elif args.split == 'cold':
+                    parser.split_cold_start(args.folds)
+            convert_to_tfrecords(train_file, parser, fold, args.max_length)
 
-    nb_batches_train = int(math.ceil(example_count_train / args.batch_size))
-    print('Number of training batches {0}, number of samples {1}'.format(nb_batches_train, example_count_train))
-    nb_batches_val = int(math.ceil(example_count_validation / args.batch_size))
-    print('Number of validation batches {0}, number of samples {1}'.format(nb_batches_val, example_count_validation))
+        test_file = os.path.join(test_folder,args.dataset + '_test_{0}.tfrecords'.format(fold))
+        if os.path.exists(test_file):
+            print("File already exists {0}".format(test_file))
+        else:
+            if not parser.test_ratings:
+                load_abstracts(parser, args.dataset)
+                # parser.split_cold_start(5)
+                if args.split == 'warm':
+                    parser.split_warm_start_item(args.folds)
+                elif args.split == 'cold':
+                    parser.split_cold_start(args.folds)
+            convert_to_tfrecords(test_file, parser, fold, args.max_length, test=True)
+        #Add the train and test files' paths
+        all_folds_dataests[fold]=(train_file,test_file)
+
+    sample_count ={}
+    for fold in range(args.folds):
+        count_tr = num_samples(all_folds_dataests[fold][0])
+        # Path of the training fold
+        print('Total number of train samples in fold {0}: {1}'.format(fold, count_tr))
+
+        count_test = num_samples(all_folds_dataests[fold][1])
+        # Path of the testing fold
+        print('Total number of test  samples in fold {0}: {1}'.format(fold,count_test ))
+
+        sample_count[fold]=(count_tr,count_test)
+
+    print('Finished parsing the input')
+    return all_folds_dataests,sample_count
+
+
+
+def train(args):
+    # #Read text input
+    parser = DataParser(args.data_dir,args.dataset,None,
+                        use_embeddings=True,embed_dir=args.embedding_dir,embed_dim=args.embedding_dim)
+    dataset_path,dataset_count = input(args,parser)
+
+    for fold in range(args.folds):
+
+        path_training = dataset_path[fold][0]
+        path_test = dataset_path[fold][1]
+
+        example_count_train = dataset_count[fold][0]
+        example_count_validation = dataset_count[fold][1]
+
+        nb_batches_train = int(math.ceil(example_count_train / args.batch_size))
+        print('Number of training batches {0}, number of samples {1}'.format(nb_batches_train, example_count_train))
+        nb_batches_val = int(math.ceil(example_count_validation / args.batch_size))
+        print('Number of validation batches {0}, number of samples {1}'.format(nb_batches_val, example_count_validation))
 
     print('Vocabolary size {0}'.format(parser.words_count))
-    print("Uknown words {0}".format(parser.unkows_words_count))
+    print("Uknown words {0}".format(parser.unkown_words_count))
     print("Uknown numbers {0}".format(parser.numbers_count))
 
     dir_prefix = time.strftime("%d:%m-%H:%M:")
@@ -147,7 +200,7 @@ def train(args):
 
     graph = tf.Graph()
     with graph.as_default():
-        model = Model(args, parser.get_ratings_matrix(),parser.embeddings,path_tr,path_t)
+        model = Model(args, parser.get_ratings_matrix(),parser.embeddings,path_training,path_test)
         train_writer = tf.summary.FileWriter(args.log_dir+ '/{0}-train'.format(dir_prefix))
         valid_writer = tf.summary.FileWriter(args.log_dir + '/{0}-validation'.format(time.strftime(dir_prefix)))
         test_writer = tf.summary.FileWriter(args.log_dir + '/{0}-test'.format(time.strftime(dir_prefix)))
@@ -172,7 +225,7 @@ def train(args):
         tf.local_variables_initializer().run()
 
         print("Getting test ratings matrix")
-        test_ratings = utils.get_test_ratings_matrix(path_t,parser.user_count,parser.paper_count,sess)
+        test_ratings = utils.get_test_ratings_matrix(path_test,parser.user_count,parser.paper_count,sess)
 
         bi_state_fw = sess.run(model.init_state_bw)
         bi_state_bw = sess.run(model.init_state_fw)
@@ -194,23 +247,22 @@ def train(args):
                 for batch in range(nb_batches_train):
                     sess.run(model.train_step_v, feed_dict=feed)
                     sess.run(model.train_step_u, feed_dict=feed)
-                    _, U, V, U_b, V_b, bi_out_fw, bi_out_bw, final_state, rmse, mae, summary_str = sess.run(
-                        [model.train_step_rnn,
-                         model.U, model.V, model.U_bias, model.V_bias,
+                    _,_, U, V, rnn_output, U_b, V_b, bi_out_fw, bi_out_bw, final_state, rmse, mae, summary_str = sess.run(
+                        [model.train_step_rnn,model.update_rnn_output,
+                         model.U,model.V, model.RNN, model.U_bias, model.V_bias,
                          model.bi_output_state_fw, model.bi_output_state_bw, model.H,
                          model.RMSE, model.MAE, model.summary_op],
                         feed_dict=feed)
-                    train_writer.add_summary(summary_str, step)
                     if batch // 10 % 50 == 0:
                         print("Epoch {0}, batch {1}".format(step,batch))
+                train_writer.add_summary(summary_str, step)
 
 
-
-                if False and step // 10 % 5 == 0:
+                if True :#and step // 10 % 5 == 0:
                     print('{0}:Validation ............'.format(time.strftime("%d:%m-%H:%M:" )))
 
                     # save a checkpoint (every 500 batches)
-                    if step // 10%50 == 0:
+                    if step // 10%5 == 0 and step > 10 :
                         saved_file = model.saver.save(sess, ckpt_dir, global_step=step)
                         print("Saved file: " + saved_file)
 
@@ -223,9 +275,10 @@ def train(args):
                         feed_dict = construct_feed(test_bi_fw, test_bi_bw)
                         rmse_test, mae_test, summary_str = sess.run(
                             [model.RMSE, model.MAE, model.summary_op], feed_dict=feed_dict)
-                        test_writer.add_summary(summary_str, step)
 
-                    prediction_matrix = np.matmul(U, V.T)
+                    test_writer.add_summary(summary_str, step)
+
+                    prediction_matrix = np.matmul(U, np.add(V,rnn_output).T)
                     prediction_matrix = np.add(prediction_matrix, np.reshape(U_b, [-1, 1]))
                     prediction_matrix = np.add(prediction_matrix, V_b)
                     rounded_predictions = utils.rounded_predictions(prediction_matrix)
@@ -248,8 +301,6 @@ def train(args):
 
                     print("Step {0} | Train RMSE: {1:3.4f}, MAE: {2:3.4f}".format(
                         step, rmse, mae))
-                    # print("         | Valid  RMSE: {0:3.4f}, MAE: {1:3.4f}".format(
-                    #     rmse_valid, mae_valid))
                     print("         | Test  RMSE: {0:3.4f}, MAE: {1:3.4f}".format(
                         rmse_test, mae_test))
                     print("         | Recall@10: {0:3.4f}".format(recall_10))

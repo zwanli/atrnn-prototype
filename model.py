@@ -31,22 +31,11 @@ class Model():
         self.reg_lambda = tf.constant(reg_lambda, dtype=tf.float32)
         self.batch_size = args.batch_size
 
-
-        # self.input_text = tf.placehoslder(tf.int32, [None, None],name="Input_text")
-        # self.seq_lengths = tf.placeholder(tf.int32,[None],name="seq_lengths")
-        # self.u_idx = tf.placeholder(tf.int32, [None],name="U_matrix")
-        # self.v_idx = tf.placeholder(tf.int32, [None],name="V_matrix")
-        # self.r = tf.placeholder(tf.float32, [None],name="R_target")
-
-
         outputs,init_ops = get_input_dataset(train_filename,test_filename,batch_size=self.batch_size)
         self.u_idx,self.v_idx, self.r, self.input_text, self.seq_lengths = outputs
+        self.v_idx = tf.reshape(self.v_idx,shape=[self.batch_size])
         self.train_init_op, self.validation_init_op = init_ops
 
-        # with tf.device("/cpu:0"):  # with tf.device("/cpu:0"):
-        #     self.u_idx,self.v_idx, self.r, self.input_text, self.seq_lengths\
-            #         = get_inputs(filename,batch_size=self.batch_size)
-        # self.batch_size = tf.placeholder(tf.int32,[], name="batch_size")
 
         self.batch_pointer = tf.Variable(0, name="batch_pointer", trainable=False, dtype=tf.int32)
         self.inc_batch_pointer_op = tf.assign(self.batch_pointer, self.batch_pointer + 1)
@@ -115,22 +104,43 @@ class Model():
         self.H = tf.identity(self.H, name='H')  # just to give it a name
         self.Yr = tf.identity(self.Yr, name='Yr')
 
+        # RNN output layer:
+        # avg pool layer [batch_size, sequence_length]
         self.G = tf.reduce_mean(self.Yr, 1)
 
+        #Update RNN output
+        with tf.device("/cpu:0"):
+            # RNN output [num_items, embedding_dim]
+            self.RNN = tf.get_variable(shape=[self.m, self.k], name='RNN_output', trainable=False, dtype=tf.float32
+                                       ,initializer=tf.constant_initializer(0.))
+            self.update_rnn_output = tf.scatter_update(self.RNN, self.v_idx, self.G)
 
+        # # G matrix for current batch, [batch_size, embeddings_dim]
+        # self.G_embed = tf.nn.embedding_lookup(self.RNN, self.v_idx)
+
+
+        # U matrix [num_users, embeddings_dim]
         self.U = weight_variable([self.n, self.k], 'U')
+        # V matrix [num_items, embeddings_dim]
         self.V = weight_variable([self.m, self.k], 'V')
 
+
+
+        # U, V biases
         self.U_bias = weight_variable([self.n], 'U_bias')
         self.V_bias = weight_variable([self.m], 'V_bias')
 
+        # Users' raws form U matrix considered for the current batch [batch_size, embeddings_dim]
         self.U_embed = tf.nn.embedding_lookup(self.U, self.u_idx)
+        # Items' raws form V matrix considered for the current batch [batch_size, embeddings_dim]
         self.V_embed = tf.nn.embedding_lookup(self.V, self.v_idx)
 
         self.U_bias_embed = tf.nn.embedding_lookup(self.U_bias, self.u_idx)
         self.V_bias_embed = tf.nn.embedding_lookup(self.V_bias, self.v_idx)
 
+
         self.F = tf.add(self.V_embed,self.G)
+
         self.r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.F), reduction_indices=1)
 
         # self.r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.V_embed), reduction_indices=1)

@@ -86,7 +86,7 @@ def train(args):
     model = Model(args, parser.get_ratings_matrix(),parser.embeddings)
 
     print('Vocabolary size {0}'.format(parser.words_count))
-    print("Uknown words {0}".format(parser.unkows_words_count))
+    print("Uknown words {0}".format(parser.unkown_words_count))
     print("Uknown numbers {0}".format(parser.numbers_count))
 
 

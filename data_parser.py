@@ -13,6 +13,12 @@ from nltk.tokenize import sent_tokenize
 from nltk.tokenize import word_tokenize
 import itertools
 import sys
+import tensorflow as tf
+from prettytable import  PrettyTable
+from utils import _int64_feature
+from utils import _bytes_feature
+
+import matplotlib.pyplot as plt
 
 '''
 GloVe embedding data can be found at:
@@ -25,7 +31,7 @@ csv.field_size_limit(sys.maxsize)
 
 
 class DataParser(object):
-    def __init__(self,base_folder, dataset, papers_presentation,use_embeddings=False,**kwargs):
+    def __init__(self,base_folder, dataset, papers_presentation, use_embeddings=False,**kwargs):
         """
         Initializes the data parser given a dataset name
         """
@@ -36,7 +42,7 @@ class DataParser(object):
         if dataset == 'citeulike-a':
             self.dataset_folder = self.base_folder + '/citeulike_a_extended'
         elif dataset == 'citeulike-t':
-            self.dataset_folder = self.base_folder + '/citeulike-t_extended'
+            self.dataset_folder = self.base_folder + '/citeulike_t_extended'
         elif dataset == 'dummy':
             self.dataset_folder = self.base_folder + '/dummy'
         else:
@@ -62,8 +68,8 @@ class DataParser(object):
 
         self.paper_count = None
         self.user_count = None
-        self.unkows_words = {}
-        self.unkows_words_count = 0
+        self.unkown_words = {}
+        self.unkown_words_count = 0
         self.numbers_count = 0
         self.words = {}
         self.words_count = 0
@@ -75,6 +81,9 @@ class DataParser(object):
         self.test_ratings = None
         self.process()
 
+        #empty space in the ram
+        del self.raw_data
+
     def process(self):
         """
         Starts parsing the data and gets matrices ready for training
@@ -82,11 +91,12 @@ class DataParser(object):
         # self.raw_labels, self.raw_data = self.parse_paper_raw_data()
 
         self.ratings = self.generate_ratings_matrix()
-        self.build_document_word_matrix()
+        # self.build_document_word_matrix()
         # print("shape")
         # print(self.document_words.shape)
         if self.papers_presentation == 'attributes':
             self.feature_labels, self.feature_matrix = self.parse_paper_features()
+            self.get_features_distribution()
         self.parse_authors()
 
     def build_document_word_matrix(self):
@@ -118,51 +128,7 @@ class DataParser(object):
         self.document_words = document_words
 
     def get_document_word_distribution(self):
-        if self.papers_presentation == 'attributes':
-            return self.feature_matrix
         return self.document_words
-
-    def load_embeddings(self):
-        #Load pre-trained embeddings
-        f = open(os.path.join(self.embed_dir, 'glove.6B.{0}d.txt'.format(self.embed_dim)))
-        print("Loading embeddings  " + str(f.name))
-        for line in f:
-            row = line.split()
-            word = row[0]
-            #Add the word to the vocabulary list of the pre-trained word embeddings dataset
-            self.embed_vocab.append(word)
-            #Add the embedding of th word
-            self.embeddings.append([float(val) for val in row[1:]])
-        f.close()
-        #Create a word to id index
-        self.embed_word_to_id = {word: i for i, word in enumerate(self.embed_vocab)}
-        return self.embed_vocab, self.embeddings
-
-
-
-    def get_word_id(self,word):
-        """
-        Get the word id from the vocabolary of the pre-trianed embeddings .
-            :returns: Word id
-            :rtype int
-        """
-
-        def is_number(s):
-            try:
-                float(s)
-                return True
-            except ValueError:
-                return False
-        if word in self.embed_vocab:
-            return self.embed_word_to_id[word]
-        elif is_number(word):
-            self.numbers_count += 1
-            # print('is_number {0}'.format(word))
-            return self.embed_word_to_id['unk']
-        else:
-            # print('Unknow word: {0}'.format(word))
-            self.unkows_words[word] = 1
-            return self.embed_word_to_id['unk']
 
     def parse_paper_features(self):
         """
@@ -179,9 +145,15 @@ class DataParser(object):
             labels_ids = []
             for line in reader:
                 if first_line:
-                    labels = ["type", "publisher", "year", "address", "booktitle", "journal", "series"]
+                    labels = []
+                    # labels=["type", "journal", "booktitle", "series", "publisher", "year", "address"]
                     for j, entry in enumerate(line):
-                        if entry in labels:
+                        #
+
+                        #     labels_ids.append(j)
+                        # else:
+                        if entry != 'abstract':
+                            labels.append(entry)
                             labels_ids.append(j)
                     row_length = len(labels_ids)
                     first_line = False
@@ -191,11 +163,11 @@ class DataParser(object):
                 self.id_map[int(line[1])] = paper_id
                 if int(paper_id) != i:
                     for _ in range(int(paper_id) - i):
-                        feature_vec.append([None] * row_length)
+                        feature_vec.append(['\\N'] * row_length)
                         i += 1
                 current_entry = []
                 for k, label_id in enumerate(labels_ids):
-                    if k == 5:
+                    if labels[k] == 'year':
                         current_entry.append(now.year - int(line[label_id]))
                     else:
                         current_entry.append(line[label_id])
@@ -204,7 +176,138 @@ class DataParser(object):
 
         if self.paper_count is None:
             self.paper_count = len(feature_vec)
-        return labels, np.array(feature_vec)
+        return labels, np.asarray(feature_vec)
+
+
+    def feature_index(self,feature):
+        for index, label in enumerate(self.feature_labels):
+            if label == feature:
+                return index
+        return -1
+
+    def get_features_distribution(self):
+        # if self.papers_presentation == 'attributes':
+        #     return self.feature_matrix
+        if self.feature_labels is None:
+            self.feature_labels, self.feature_matrix = self.parse_paper_features()
+
+        # journal_index = -1
+        # booktitle_index = -1
+        # series_index = -1
+        # for index, label in enumerate(self.feature_labels):
+        #     if label == 'type':
+        #         type_index = index
+        #     if label == 'journal':
+        #         journal_index = index
+        #     if label == 'booktitle':
+        #         booktitle_index = index
+        #     if label == 'series':
+        #         series_index = index
+        #     if label == 'publisher':
+        #         publisher_index = index
+        #     if label == 'year':
+        #         year_index = index
+        #     if label == 'address':
+        #         address_index = index
+        #
+        #
+        # unique_journal, counts_journal = np.unique(self.feature_matrix[:, journal_index], return_counts=True)
+        # unique_booktitle, counts_booktitle = np.unique(self.feature_matrix[:,booktitle_index], return_counts=True)
+        # unique_series, counts_series = np.unique(self.feature_matrix[:, series_index], return_counts=True)
+        # unique_year, counts_year = np.unique(self.feature_matrix[:, year_index], return_counts=True)
+        # unique_type, counts_type = np.unique(self.feature_matrix[:, type_index], return_counts=True)
+        # unique_publisher, counts_publisher = np.unique(self.feature_matrix[:, publisher_index], return_counts=True)
+        # unique_address, counts_address = np.unique(self.feature_matrix[:, address_index], return_counts=True)
+        #
+        # print('Number of unique journal {0}, frequency {1}'.format(len(unique_journal),counts_journal))
+        # print('Number of unique booktitle {0}, frequency {1}'.format(len(unique_booktitle), counts_booktitle))
+        # print('Number of unique series {0}, frequency {1}'.format(len(unique_series), counts_series))
+        # print('Number of unique year {0}, frequency {1}'.format(len(unique_year), counts_year))
+        # print('Number of unique type {0}, frequency {1}'.format(len(unique_type), counts_type))
+        # print('Number of unique publisher {0}, frequency {1}'.format(len(unique_publisher), counts_publisher))
+        # print('Number of unique address {0}, frequency {1}'.format(len(unique_address), counts_address))
+        #
+
+        # A dict of tuples. First element of the tuple is the unique values of a the chosen attribute, the second is
+        # their frequencies
+        uniqe_freq = {}
+        # A dict that has the id of the missing token '\\N' for each attribute
+        missing_value_id = {}
+
+        #Number of papers that have a value for each attribute
+        att_count = {}
+        t = PrettyTable(['feature','# of unique values', '# of papers that have value','# of papers that have missing values'])
+        for feature in self.feature_labels:
+            uniqe_freq[feature] = np.unique(self.feature_matrix[:, self.feature_index(feature)], return_counts=True)
+            missing_value_id[feature] = np.where(uniqe_freq[feature][0] == '\\N')
+
+            att_count[feature] = np.sum(uniqe_freq[feature][1]) \
+                                 - (uniqe_freq[feature][1][missing_value_id[feature]]
+                                    if len(missing_value_id[feature][0]) != 0 else 0)
+
+            t.add_row([feature,len(uniqe_freq[feature][0]),att_count[feature],(uniqe_freq[feature][1][missing_value_id[feature]]
+                                    if missing_value_id[feature][0] is not None else 0)])
+        print (t)
+
+        att_per_paper = {}
+        for paper in self.feature_matrix:
+            att_per_paper[paper[0]] = len(np.where(paper != '\\N')[0])
+
+        plt.hist(list(att_per_paper.values()))
+        plt.title("Attribute per paper")
+        plt.xlabel("Value")
+        plt.ylabel("Frequency")
+
+        fig = plt.gcf()
+        fig.savefig('attribute-per-paper-histogram')
+        print('')
+        # for feature in self.feature_labels:
+        #     print('Number of unique {0} {1}, frequencies {2}'.format(feature,len(uniqe_freq[feature][0]), uniqe_freq[feature][1]))
+        #     print('', end="")
+
+
+
+
+    def load_embeddings(self):
+        # Load pre-trained embeddings
+        f = open(os.path.join(self.embed_dir, 'glove.6B.{0}d.txt'.format(self.embed_dim)))
+        print("Loading embeddings  " + str(f.name))
+        for line in f:
+            row = line.split()
+            word = row[0]
+            # Add the word to the vocabulary list of the pre-trained word embeddings dataset
+            self.embed_vocab.append(word)
+            # Add the embedding of th word
+            self.embeddings.append([float(val) for val in row[1:]])
+        f.close()
+        # Create a word to id index
+        self.embed_word_to_id = {word: i for i, word in enumerate(self.embed_vocab)}
+        return self.embed_vocab, self.embeddings
+
+    def get_word_id(self, word):
+        """
+        Get the word id from the vocabolary of the pre-trianed embeddings .
+            :returns: Word id
+            :rtype int
+        """
+
+        def is_number(s):
+            try:
+                float(s)
+                return True
+            except ValueError:
+                return False
+
+        if word in self.embed_vocab:
+            return self.embed_word_to_id[word]
+        elif is_number(word):
+            self.numbers_count += 1
+            # print('is_number {0}'.format(word))
+            return self.embed_word_to_id['unk']
+        else:
+            # print('Unknow word: {0}'.format(word))
+            self.unkown_words[word] = 1
+            return self.embed_word_to_id['unk']
 
     def insert_word(self, word):
 
@@ -252,7 +355,6 @@ class DataParser(object):
         # print(self.words_count)
         return labels, np.array(data_vec)
 
-
     def get_papar_as_word_ids(self):
         """ Convert the papers raw data to vectors of word ids of the pre-trained embeddings' vocabulary
         :return: Papers' abstracts as ids
@@ -267,7 +369,7 @@ class DataParser(object):
                 doc_idx= ([self.get_word_id(word.lower()) for sentence in sentences for word in sentence])
                 self.all_documents[i] = doc_idx
         # self.paper_data_ids = docs
-        self.unkows_words_count = len(self.unkows_words.items())
+        self.unkown_words_count = len(self.unkown_words.items())
         # print ("Unknown words: ")
         # for word in self.unkows_words.keys():
         #     print(word)
@@ -289,9 +391,9 @@ class DataParser(object):
         if self.feature_matrix[paper][journal_index] != '\\N':
             return self.feature_matrix[paper][journal_index]
         if self.feature_matrix[paper][booktitle_index] != '\\N':
-            return self.feature_matrix[path][booktitle_index]
+            return self.feature_matrix[paper][booktitle_index]
         if self.feature_matrix[paper][series_index] != '\\N':
-            return self.feature_matrix[path][series_index]
+            return self.feature_matrix[paper][series_index]
         return None
 
     def parse_authors(self):
@@ -431,7 +533,7 @@ class DataParser(object):
                     #Always add to train
                     train_ratings_item[fold][item] = rated_items_indices
             else:
-                items_with_users_bigger_folds+= 1
+                items_with_users_bigger_folds += 1
                 # Shuffle all rated items indices
                 np.random.seed(0)
                 np.random.shuffle(rated_items_indices)
@@ -444,11 +546,14 @@ class DataParser(object):
                         end = len(rated_items_indices)
                     #indices of the users in test
                     item_test_indices = rated_items_indices[start:end]
+
+                    # indices of the users in train
+                    item_train_indices = [i for i in rated_items_indices if i not in item_test_indices]
+
                     # mask = np.ones(len(rated_items_indices), dtype=bool)
                     # mask[[item_test_indices]] = False
                     # item_train_indices = rated_items_indices[mask]
-                    # indices of the users in train
-                    item_train_indices = [i for i in rated_items_indices if i not in item_test_indices]
+
                     train_ratings_item[fold][item] = item_train_indices
                     test_ratings_item[fold][item] = item_test_indices
 
@@ -472,6 +577,9 @@ class DataParser(object):
 
             #sort the items indices
             for user in range(self.user_count):
+                #Randomly sample a negative data example for each positive one
+                negative_idx =self.get_negative_samples(train_ratings_user[fold][user],test_ratings_user[fold][user],self.paper_count)
+                train_ratings_user[fold][user].extend(negative_idx)
                 train_ratings_user[fold][user].sort()
                 test_ratings_user[fold][user].sort()
 
@@ -506,6 +614,10 @@ class DataParser(object):
                 rated_items_indices = self.ratings[user].nonzero()[0]
                 u_train_indices = np.intersect1d(train_idx,rated_items_indices)
                 u_test_indices = np.intersect1d(test_idx,rated_items_indices)
+                #Randomly sample a negative data example for each positive one
+                negative_idx = self.get_negative_samples(u_train_indices, u_test_indices, self.paper_count)
+
+                u_train_indices = np.concatenate((u_train_indices,negative_idx))
                 u_train_indices.sort()
                 u_test_indices.sort()
                 train_ratings[fold][user] =u_train_indices
@@ -513,6 +625,18 @@ class DataParser(object):
         self.train_ratings = train_ratings
         self.test_ratings = test_ratings
         return self.train_ratings,self.test_ratings
+
+    def get_negative_samples(self,train_idx,test_idx,paper_count):
+        idx= np.arange(self.paper_count,dtype=np.int32)
+        mask = np.ones(self.paper_count, dtype=bool)
+        mask[[train_idx]] = False
+        mask[[test_idx]] = False
+        negative_idx = idx[mask]
+        np.random.seed(0)
+        np.random.shuffle(negative_idx)
+        return negative_idx[:len(train_idx)]
+
+
 
     def generate_samples(self, batch_size,fold, train=True, validation=False, test=False):
         ratings = np.zeros((self.user_count, self.paper_count),dtype=np.int32)
@@ -549,22 +673,45 @@ class DataParser(object):
                 yield u_idx[0], v_idx[0], r[0], docs[0]
         # return True
 
-    def get_test_idx(self):
-        ratings = np.zeros((self.user_count, self.paper_count))
-        fold = 0
-        for i, u in enumerate(self.test_ratings[fold]):
-            for v in u:
-                ratings[i][v] = 1
 
-        nonzero_u_idx = ratings.nonzero()[0]
-        nonzero_v_idx = ratings.nonzero()[1]
-        num_rating = np.count_nonzero(ratings)
-        idx = np.arange(num_rating)
 
-        test_u_idx = self.nonzero_u_idx[idx]
-        test_v_idx = self.nonzero_v_idx[idx]
-        test_m = ratings[test_u_idx, test_v_idx]
-        docs = [self.all_documents[x] for x in test_v_idx]
-        docs = np.array(docs)
-        return test_u_idx, test_v_idx, test_m, docs,ratings
+    def save_embeddings(self):
+        for word in self.words.keys():
+            word_id = self.get_word_id(word.lower())
+            word_embed = self.embeddings[word_id]
+            path = os.path.join(self.dataset_folder,'{0}_{1}.embeddings'.format(self.dataset,self.embed_dim ))
+            print('Writing', path)
+            writer = tf.python_io.TFRecordWriter(path)
+            # Create a feature
+            feature = {'word': _bytes_feature(tf.compat.as_bytes(word)),
+                       'glove_id': _int64_feature(word_id),
+                       'embed': tf.train.Feature(int64_list=tf.train.Int64List(value=[word_embed]))}
+            # Create an example protocol buffer
+            example = tf.train.Example(features=tf.train.Features(feature=feature))
 
+            # Serialize to string and write on the file
+            writer.write(example.SerializeToString())
+
+        writer.close()
+        sys.stdout.flush()
+
+            #
+    # def get_test_idx(self):
+    #     ratings = np.zeros((self.user_count, self.paper_count))
+    #     fold = 0
+    #     for i, u in enumerate(self.test_ratings[fold]):
+    #         for v in u:
+    #             ratings[i][v] = 1
+    #
+    #     nonzero_u_idx = ratings.nonzero()[0]
+    #     nonzero_v_idx = ratings.nonzero()[1]
+    #     num_rating = np.count_nonzero(ratings)
+    #     idx = np.arange(num_rating)
+    #
+    #     test_u_idx = self.nonzero_u_idx[idx]
+    #     test_v_idx = self.nonzero_v_idx[idx]
+    #     test_m = ratings[test_u_idx, test_v_idx]
+    #     docs = [self.all_documents[x] for x in test_v_idx]
+    #     docs = np.array(docs)
+    #     return test_u_idx, test_v_idx, test_m, docs,ratings
+    #

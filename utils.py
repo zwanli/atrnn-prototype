@@ -55,28 +55,24 @@ def _bytes_feature_list(values):
     return tf.train.FeatureList(feature=[_bytes_feature(v) for v in values])
 
 
-def convert_to_tfrecords(dir, parser, name,folds,maxlen, validation=False, test=False):
+def convert_to_tfrecords(path, parser,fold, maxlen, validation=False, test=False):
     """Converts a dataset to tfrecords."""
-    for fold in range(folds):
-        filename = os.path.join(dir, name + '{0}_{1}.tfrecords'.format("_test" if test else "_train",fold))
-        print('Writing', filename)
-        writer = tf.python_io.TFRecordWriter(filename)
-        for u_id, v_id, rating, doc in parser.generate_samples(1,fold, validation=validation, test=test):
-            context = tf.train.Features(feature={
-                'u': _int64_feature(u_id),
-                'v': _int64_feature(v_id),
-                'r': _int64_feature(rating),
-                'abs_length': _int64_feature(len(doc))
-            })
-            feature_lists = tf.train.FeatureLists(feature_list={
-                "abstract": _int64_feature_list(doc[:maxlen]) })
-            sequence_example = tf.train.SequenceExample(
-                context=context, feature_lists=feature_lists)
-            writer.write(sequence_example.SerializeToString())
-            # example = tf.train.Example(feature))1
-            # writer.write(example.SerializeToString())
-        writer.close()
-        sys.stdout.flush()
+    print('Writing', path)
+    writer = tf.python_io.TFRecordWriter(path)
+    for u_id, v_id, rating, doc in parser.generate_samples(1, fold, validation=validation, test=test):
+        context = tf.train.Features(feature={
+            'u': _int64_feature(u_id),
+            'v': _int64_feature(v_id),
+            'r': _int64_feature(rating),
+            'abs_length': _int64_feature(len(doc))
+        })
+        feature_lists = tf.train.FeatureLists(feature_list={
+            "abstract": _int64_feature_list(doc[:maxlen]) })
+        sequence_example = tf.train.SequenceExample(
+            context=context, feature_lists=feature_lists)
+        writer.write(sequence_example.SerializeToString())
+    writer.close()
+    sys.stdout.flush()
 
 
 def read_and_decode(filename_queue):
