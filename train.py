@@ -8,6 +8,7 @@ import pickle
 from data_parser import DataParser
 import utils
 from model import Model
+from model import Model_test
 from utils import convert_to_tfrecords
 from eval import evaluate
 import math
@@ -62,7 +63,8 @@ def main():
     #                         'model.ckpt-*'      : file(s) with model definition (created by tf)
     #                     """)
     args = parser.parse_args()
-    train(args)
+    # train(args)
+    partial_run(args)
 
 
 def load_abstracts(parser,dataset):
@@ -205,8 +207,6 @@ def train(args):
         valid_writer = tf.summary.FileWriter(args.log_dir + '/{0}-validation'.format(time.strftime(dir_prefix)))
         test_writer = tf.summary.FileWriter(args.log_dir + '/{0}-test'.format(time.strftime(dir_prefix)))
 
-    # # Add ops to save and restore all the variables.
-    # saver = tf.train.Saver()
 
     def construct_feed(bi_hid_fw, bi_hid_bw):
         return {model.init_state_fw: bi_hid_fw, model.init_state_bw: bi_hid_bw}
@@ -244,6 +244,7 @@ def train(args):
                 sess.run(model.train_init_op)
                 feed = construct_feed(bi_state_fw, bi_state_bw)
 
+                start = time.time()
                 for batch in range(nb_batches_train):
                     sess.run(model.train_step_v, feed_dict=feed)
                     sess.run(model.train_step_u, feed_dict=feed)
@@ -257,8 +258,9 @@ def train(args):
                         print("Epoch {0}, batch {1}".format(step,batch))
                 train_writer.add_summary(summary_str, step)
 
-
-                if True and step // 10 % 5 == 0:
+                end = time.time()
+                print('Epoch {0}, finished in {1}'.format(step, end - start))
+                if False and step // 10 % 5 == 0:
                     print('{0}:Validation ............'.format(time.strftime("%d:%m-%H:%M:" )))
 
                     # save a checkpoint (every 500 batches)
@@ -364,8 +366,189 @@ def train(args):
             print(e)
             # coord.request_stop(e)
             print("Finished training")
-        # finally:
-        #     coord.request_stop()
-        #     coord.join(threads)
+
+def partial_run(args):
+    # #Read text input
+    parser = DataParser(args.data_dir, args.dataset, 'attributes',
+                        use_embeddings=True, embed_dir=args.embedding_dir, embed_dim=args.embedding_dim)
+    dataset_path, dataset_count = input(args, parser)
+
+    for fold in range(args.folds):
+        path_training = dataset_path[fold][0]
+        path_test = dataset_path[fold][1]
+
+        example_count_train = dataset_count[fold][0]
+        example_count_validation = dataset_count[fold][1]
+
+        nb_batches_train = int(math.ceil(example_count_train / args.batch_size))
+        print('Number of training batches {0}, number of samples {1}'.format(nb_batches_train, example_count_train))
+        nb_batches_val = int(math.ceil(example_count_validation / args.batch_size))
+        print(
+            'Number of validation batches {0}, number of samples {1}'.format(nb_batches_val, example_count_validation))
+
+    print('Vocabolary size {0}'.format(parser.words_count))
+    print("Uknown words {0}".format(parser.unkown_words_count))
+    print("Uknown numbers {0}".format(parser.numbers_count))
+
+    dir_prefix = time.strftime("%d:%m-%H:%M:")
+    # Checkpoints directory
+    ckpt_dir = os.path.join(args.log_dir, 'checkpoints/{0}-train'.format(dir_prefix))
+
+    best_val_rmse = np.inf
+    best_val_mae = np.inf
+    best_test_rmse = 0
+    best_test_mae = 0
+
+    evaluator = Evaluator(parser.get_ratings_matrix(), verbose=True)
+
+    graph = tf.Graph()
+    with graph.as_default():
+        model = Model(args, parser.get_ratings_matrix(), parser.embeddings, path_training, path_test)
+        train_writer = tf.summary.FileWriter(args.log_dir + '/{0}-train'.format(dir_prefix))
+        valid_writer = tf.summary.FileWriter(args.log_dir + '/{0}-validation'.format(time.strftime(dir_prefix)))
+        test_writer = tf.summary.FileWriter(args.log_dir + '/{0}-test'.format(time.strftime(dir_prefix)))
+
+    def construct_feed(bi_hid_fw, bi_hid_bw):
+        return {model.init_state_fw: bi_hid_fw, model.init_state_bw: bi_hid_bw}
+        # model.initial_state: hid_state,
+
+    config = tf.ConfigProto()
+    config.gpu_options.allocator_type = 'BFC'
+
+    n_steps = args.num_epochs
+    with tf.Session(config=config, graph=graph) as sess:
+        print('Saving graph to disk...')
+        train_writer.add_graph(sess.graph)
+        # valid_writer.add_graph(sess.graph)
+        # test_writer.add_graph(sess.graph)
+        tf.global_variables_initializer().run()
+        tf.local_variables_initializer().run()
+
+        print("Getting test ratings matrix")
+        test_ratings = utils.get_test_ratings_matrix(path_test, parser.user_count, parser.paper_count, sess)
+
+        bi_state_fw = sess.run(model.init_state_bw)
+        bi_state_bw = sess.run(model.init_state_fw)
+        h_state = sess.run(model.initial_state)
+
+        try:
+            for step in range(n_steps):
+                print('{0}: Epoch {1}'.format(time.strftime("%d:%m-%H:%M:"), step))
+                print('Training .....................................')
+                # Initialize the training dataset iterator
+                sess.run(model.train_init_op)
+                feed_dict = construct_feed(bi_state_fw, bi_state_bw)
+
+                # add dummy steps so tf won't complain and give the error
+                # partial_run() requires empty target_list.
+                #please refer to this issue:
+                # https://github.com/tensorflow/tensorflow/issues/1899
+                with tf.control_dependencies([model.train_step_rnn]):
+                    dummy_train_step_rnn = tf.constant(0)
+                with tf.control_dependencies([model.train_step_v]):
+                    dummy_train_step_v = tf.constant(0)
+                with tf.control_dependencies([model.train_step_u]):
+                    dummy_train_step_u = tf.constant(0)
+
+                feeds = [model.init_state_fw, model.init_state_bw]
+                fetches=[dummy_train_step_rnn,dummy_train_step_u,dummy_train_step_v,
+                        # model.train_step_v,model.train_step_u,model.train_step_rnn,
+                         model.update_rnn_output,
+                         model.U, model.V, model.RNN, model.U_bias, model.V_bias,
+                         model.bi_output_state_fw, model.bi_output_state_bw, model.H,
+                         model.RMSE, model.MAE, model.summary_op]
+                start = time.time()
+                for batch in range(nb_batches_train):
+                    handle = sess.partial_run_setup(fetches, feeds)
+                    sess.partial_run(handle, dummy_train_step_rnn, feed_dict=feed_dict)
+                    sess.partial_run(handle,dummy_train_step_v)
+                    _, _, U, V, rnn_output, U_b, V_b, bi_out_fw, bi_out_bw, final_state, rmse, mae, summary_str = sess.partial_run(
+                        handle,
+                        [dummy_train_step_u, model.update_rnn_output,
+                         model.U, model.V, model.RNN, model.U_bias, model.V_bias,
+                         model.bi_output_state_fw, model.bi_output_state_bw, model.H,
+                         model.RMSE, model.MAE, model.summary_op])
+                    if batch // 10 % 50 == 0:
+                        print("Epoch {0}, batch {1}".format(step, batch))
+                train_writer.add_summary(summary_str, step)
+                end = time.time()
+                print('Epoch {0}, finished in {1}'.format(step,end - start))
+                if False and step // 10 % 5 == 0:
+                    print('{0}:Validation ............'.format(time.strftime("%d:%m-%H:%M:")))
+
+                    # save a checkpoint (every 500 batches)
+                    if step // 10 % 50 == 0 and step > 10:
+                        saved_file = model.saver.save(sess, ckpt_dir, global_step=step)
+                        print("Saved file: " + saved_file)
+
+                    # Initialize the validation dataset iterator
+                    sess.run(model.validation_init_op)
+                    test_bi_fw = sess.run(model.init_state_fw)
+                    test_bi_bw = sess.run(model.init_state_bw)
+                    init_state = sess.run(model.initial_state)
+                    feed_dict = construct_feed(test_bi_fw, test_bi_bw)
+                    for _ in range(nb_batches_val):
+                        rmse_test, mae_test, summary_str = sess.run(
+                            [model.RMSE, model.MAE, model.summary_op], feed_dict=feed_dict)
+
+                    test_writer.add_summary(summary_str, step)
+
+                    prediction_matrix = np.matmul(U, np.add(V, rnn_output).T)
+                    prediction_matrix = np.add(prediction_matrix, np.reshape(U_b, [-1, 1]))
+                    prediction_matrix = np.add(prediction_matrix, V_b)
+                    rounded_predictions = utils.rounded_predictions(prediction_matrix)
+                    evaluator.load_top_recommendations_2(200, prediction_matrix, test_ratings)
+                    recall_10 = evaluator.recall_at_x(10, prediction_matrix, parser.ratings, rounded_predictions)
+                    recall_50 = evaluator.recall_at_x(50, prediction_matrix, parser.ratings, rounded_predictions)
+                    recall_100 = evaluator.recall_at_x(100, prediction_matrix, parser.ratings, rounded_predictions)
+                    recall_200 = evaluator.recall_at_x(200, prediction_matrix, parser.ratings, rounded_predictions)
+                    recall = evaluator.calculate_recall(ratings=parser.ratings, predictions=rounded_predictions)
+                    ndcg_at_five = evaluator.calculate_ndcg(5, rounded_predictions)
+                    ndcg_at_ten = evaluator.calculate_ndcg(10, rounded_predictions)
+
+                    mrr_at_ten = evaluator.calculate_mrr(10, rounded_predictions)
+
+                    feed = {model.recall: recall, model.recall_10: recall_10, model.recall_50: recall_50,
+                            model.recall_100: recall_100, model.recall_200: recall_200,
+                            model.ndcg_5: ndcg_at_five, model.ndcg_10: ndcg_at_ten, model.mrr_10: mrr_at_ten}
+                    eval_metrics = sess.run([model.eval_metrics], feed_dict=feed)
+                    test_writer.add_summary(eval_metrics[0], step)
+
+                    print("Step {0} | Train RMSE: {1:3.4f}, MAE: {2:3.4f}".format(
+                        step, rmse, mae))
+                    print("         | Test  RMSE: {0:3.4f}, MAE: {1:3.4f}".format(
+                        rmse_test, mae_test))
+                    print("         | Recall@10: {0:3.4f}".format(recall_10))
+                    print("         | Recall@50: {0:3.4f}".format(recall_50))
+                    print("         | Recall@100: {0:3.4f}".format(recall_100))
+                    print("         | Recall@200: {0:3.4f}".format(recall_200))
+                    print("         | Recall: {0:3.4f}".format(recall))
+                    print("         | ndcg@5: {0:3.4f}".format(ndcg_at_five))
+                    print("         | ndcg@10: {0:3.4f}".format(ndcg_at_ten))
+                    print("         | mrr@10: {0:3.4f}".format(mrr_at_ten))
+                    if best_val_rmse > rmse_test:
+                        # best_val_rmse = rmse_valid
+                        best_test_rmse = rmse_test
+
+                    if best_val_mae > rmse_test:
+                        # best_val_mae = mae_valid
+                        best_test_mae = mae_test
+
+                # loop state around
+                h_state = final_state
+                bi_state_fw = bi_out_fw
+                bi_state_bw = bi_out_bw
+            model.saver.save(sess, args.log_dir + "/{0}model.ckpt".format(time.strftime(dir_prefix)))
+            print('Best test rmse:', best_test_rmse, 'Best test mae', best_test_mae, sep=' ')
+            train_writer.close()
+            valid_writer.close()
+            test_writer.close()
+        except Exception as e:
+            # Report exceptions to the coordinator.
+            print(e)
+            # coord.request_stop(e)
+            print("Finished training")
+
+
 if __name__ == '__main__':
     main()
