@@ -71,7 +71,7 @@ class Model():
                 # inputs = tf.split(, args.seq_length, 1)
                 # inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
                 inputs = tf.nn.embedding_lookup(embedding, self.input_text)
-                inputs = tf.contrib.layers.dropout(inputs, keep_prob=self.dropout_embed_layer)
+                inputs = tf.contrib.layers.dropout(inputs, keep_prob=1.0-self.dropout_embed_layer)
 
             #First layer, bidirectional layer
             '''

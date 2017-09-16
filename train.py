@@ -246,8 +246,8 @@ def train(args):
         # train_writer.add_graph(sess.graph)
         # valid_writer.add_graph(sess.graph)
         # test_writer.add_graph(sess.graph)
-        dropout_second_layer = 0.3
-        dropout_bidir_layer = 0.5
+        dropout_second_layer = 0.2
+        dropout_bidir_layer = 0.1
         dropout_embed_layer = 0.1
 
         tf.global_variables_initializer().run()
