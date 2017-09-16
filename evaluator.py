@@ -336,7 +336,7 @@ class Evaluator(object):
                 ndcgs.append(dcg / idcg)
         return numpy.mean(ndcgs, dtype=numpy.float16)
 
-    def calculate_mrr(self, n_recommendations, predictions, test_data, rounded_predictions):
+    def calculate_mrr(self, n_recommendations, rounded_predictions):
         """
         The method calculates the mean reciprocal rank for all users
         by only looking at the top n_recommendations.
