@@ -62,8 +62,8 @@ def main():
     #                         'model.ckpt-*'      : file(s) with model definition (created by tf)
     #                     """)
     args = parser.parse_args()
-    # train(args)
-    partial_run(args)
+    train(args)
+    # partial_run(args)
 
 
 def load_abstracts(parser,dataset_folder):
@@ -231,8 +231,10 @@ def train(args):
         valid_writer = tf.summary.FileWriter(args.log_dir + '/{0}-validation'.format(time.strftime(dir_prefix)))
         test_writer = tf.summary.FileWriter(args.log_dir + '/{0}-test'.format(time.strftime(dir_prefix)))
 
-    def construct_feed(bi_hid_fw, bi_hid_bw):
-        return {model.init_state_fw: bi_hid_fw, model.init_state_bw: bi_hid_bw}
+    def construct_feed(bi_hid_fw, bi_hid_bw,dropout_0, dropout_1,dropout_2):
+        return {model.init_state_fw: bi_hid_fw, model.init_state_bw: bi_hid_bw,
+                model.dropout_embed_layer:dropout_0, model.dropout_bidir_layer:dropout_1,
+                model.dropout_second_layer:dropout_2}
         # model.initial_state: hid_state,
 
     config = tf.ConfigProto()
@@ -244,6 +246,10 @@ def train(args):
         # train_writer.add_graph(sess.graph)
         # valid_writer.add_graph(sess.graph)
         # test_writer.add_graph(sess.graph)
+        dropout_second_layer = 0.3
+        dropout_bidir_layer = 0.5
+        dropout_embed_layer = 0.1
+
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
 
@@ -261,7 +267,8 @@ def train(args):
                 print('Training .....................................')
                 # Initialize the training dataset iterator
                 sess.run(model.train_init_op)
-                feed_dict = construct_feed(bi_state_fw, bi_state_bw)
+                feed_dict = construct_feed(bi_state_fw, bi_state_bw,
+                                           dropout_embed_layer,dropout_bidir_layer,dropout_second_layer)
 
                 fetches = [model.joint_train_step,
                            model.update_rnn_output,

@@ -54,26 +54,12 @@ class Model():
 
         self.train_init_op, self.validation_init_op = init_ops
 
+        self.dropout_second_layer = tf.placeholder(tf.float32, name='dropout_second_layer')
+        self.dropout_bidir_layer = tf.placeholder(tf.float32, name='dropout_bidir_layer')
+        self.dropout_embed_layer = tf.placeholder(tf.float32, name='dropout_embed_layer')
 
-        # self.batch_pointer = tf.Variable(0, name="batch_pointer", trainable=False, dtype=tf.int32)
-        # self.inc_batch_pointer_op = tf.assign(self.batch_pointer, self.batch_pointer + 1)
-        # self.epoch_pointer = tf.Variable(0, name="epoch_pointer", trainable=False)
-        # self.batch_time = tf.Variable(0.0, name="batch_time", trainable=False)
-        # tf.summary.scalar("time_batch", self.batch_time)
+        with tf.variable_scope('rnn'):
 
-        def variable_summaries(var):
-            """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
-            with tf.name_scope('summaries'):
-                mean = tf.reduce_mean(var)
-                tf.summary.scalar('mean', mean)
-                #with tf.name_scope('stddev'):
-                #   stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
-                #tf.summary.scalar('stddev', stddev)
-                tf.summary.scalar('max', tf.reduce_max(var))
-                tf.summary.scalar('min', tf.reduce_min(var))
-                #tf.summary.histogram('histogram', var)
-
-        with tf.variable_scope('rnnlm'):
             with tf.device("/cpu:0"):
                 vocab_size = args.vocab_size
                 embedding_dim = args.embedding_dim
@@ -85,46 +71,65 @@ class Model():
                 # inputs = tf.split(, args.seq_length, 1)
                 # inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
                 inputs = tf.nn.embedding_lookup(embedding, self.input_text)
+                inputs = tf.contrib.layers.dropout(inputs, keep_prob=self.dropout_embed_layer)
 
-        cells = []
+            #First layer, bidirectional layer
+            '''
+                        https://arxiv.org/pdf/1512.05287.pdf
+                        "The article says that dropout should be applied to RNN inputs+output as well as states,
+                        using the same dropout mask for all the steps of the unrolled sequence.
+                        This approach is called "variational dropout" and the primitives for implementing it
+                        have recently been added to Tensorflow."
+            '''
 
-        cell_fw = cell_fn(args.rnn_size)
-        cell_bw = cell_fn(args.rnn_size)
-        self.init_state_fw =cell_bw.zero_state(self.batch_size, tf.float32)
-        self.init_state_bw =cell_fw.zero_state(self.batch_size, tf.float32)
+            cell_fw = cell_fn(args.rnn_size)
+            cell_fw = rnn.DropoutWrapper(
+                cell_fw, input_keep_prob=1.0-self.dropout_bidir_layer, output_keep_prob=1.0-self.dropout_bidir_layer,
+                state_keep_prob = 1.0-self.dropout_bidir_layer,
+                dtype=tf.float32, variational_recurrent=True, input_size= embedding_dim)
+            cell_bw = cell_fn(args.rnn_size)
+            cell_bw = tf.contrib.rnn.DropoutWrapper(
+                cell_bw, input_keep_prob=1.0-self.dropout_bidir_layer, output_keep_prob=1.0-self.dropout_bidir_layer,
+                state_keep_prob=1.0-self.dropout_bidir_layer,
+                dtype=tf.float32, variational_recurrent=True, input_size= embedding_dim)
+            self.init_state_fw =cell_bw.zero_state(self.batch_size, tf.float32)
+            self.init_state_bw =cell_fw.zero_state(self.batch_size, tf.float32)
 
-        bi_outputs, bi_output_state = \
-            tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, inputs, sequence_length=self.seq_lengths,
-                                            initial_state_bw=self.init_state_bw, initial_state_fw=self.init_state_fw)
-        bi_outputs = tf.concat(bi_outputs, 2)
-        self.bi_output_state_fw, self.bi_output_state_bw = bi_output_state
+            bi_outputs, bi_output_state = \
+                tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, inputs, sequence_length=self.seq_lengths,
+                                                initial_state_bw=self.init_state_bw, initial_state_fw=self.init_state_fw)
+            bi_outputs = tf.concat(bi_outputs, 2)
+            self.bi_output_state_fw, self.bi_output_state_bw = bi_output_state
 
-        # (bi_outputs_fw, bi_outputs_bw), self.bi_output_state_fw, self.bi_output_state_bw = \
-        #         tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw,inputs,sequence_length=self.seq_lengths,
-        #                                  initial_state_bw=self.init_state_bw,initial_state_fw=self.init_state_fw)
-        # bi_outputs = tf.concat((bi_outputs_fw,bi_outputs_bw),2)
 
-        self.bi_output_state_fw = tf.identity(self.bi_output_state_fw, name='bi_state_fw')  # just to give it a name
-        self.bi_output_state_bw = tf.identity(self.bi_output_state_bw, name='bi_state_bw')  # just to give it a name
+            self.bi_output_state_fw = tf.identity(self.bi_output_state_fw, name='bi_state_fw')  # just to give it a name
+            self.bi_output_state_bw = tf.identity(self.bi_output_state_bw, name='bi_state_bw')  # just to give it a name
 
-        for _ in range(args.num_layers):
-            cell = cell_fn(args.rnn_size)
-            cells.append(cell)
+            #Second layer
+            cells = []
+            for _ in range(args.num_layers):
+                cell = cell_fn(args.rnn_size)
 
-        self.cell = cell = rnn.MultiRNNCell(cells)
-        self.initial_state = cell.zero_state(self.batch_size, tf.float32)
+                cell = rnn.DropoutWrapper(
+                    cell, input_keep_prob=1.0-self.dropout_second_layer, output_keep_prob=1.0-self.dropout_second_layer,
+                    state_keep_prob=1.0-self.dropout_second_layer)
+                    #dtype=tf.float32, variational_recurrent=True, input_size= embedding_dim*2)
+                cells.append(cell)
 
-        # bi_outputs = tf.stack(bi_outputs,1)
-        self.Yr, self.H = tf.nn.dynamic_rnn(cell,bi_outputs,sequence_length=self.seq_lengths,
-                                            initial_state=self.initial_state,dtype=tf.float32)
-        # Yr: [ BATCHSIZE, SEQLEN, INTERNALSIZE ]
-        # H:  [ BATCHSIZE, INTERNALSIZE*NLAYERS ] # this is the last state in the sequence
-        self.H = tf.identity(self.H, name='H')  # just to give it a name
-        self.Yr = tf.identity(self.Yr, name='Yr')
+            self.cell = cell = rnn.MultiRNNCell(cells)
+            self.initial_state = cell.zero_state(self.batch_size, tf.float32)
 
-        # RNN output layer:
-        # avg pool layer [batch_size, embedding_dim]
-        self.G = tf.reduce_mean(self.Yr, 1)
+            # bi_outputs = tf.stack(bi_outputs,1)
+            self.Yr, self.H = tf.nn.dynamic_rnn(cell,bi_outputs,sequence_length=self.seq_lengths,
+                                                initial_state=self.initial_state,dtype=tf.float32)
+            # Yr: [ BATCHSIZE, SEQLEN, INTERNALSIZE ]
+            # H:  [ BATCHSIZE, INTERNALSIZE*NLAYERS ] # this is the last state in the sequence
+            self.H = tf.identity(self.H, name='H')  # just to give it a name
+            self.Yr = tf.identity(self.Yr, name='Yr')
+
+            # RNN output layer:
+            # avg pool layer [batch_size, embedding_dim]
+            self.G = tf.reduce_mean(self.Yr, 1)
 
         #Update RNN output
         with tf.device("/cpu:0"):
@@ -174,14 +179,14 @@ class Model():
 
         self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
 
-        self.joint_train_step = self.optimizer.minimize(self.reg_loss)
+        self.joint_train_step = self.optimizer.minimize(self.l2_loss)
 
-        self.train_step_u = self.optimizer.minimize(self.reg_loss, var_list=[self.U, self.U_bias])
-        self.train_step_v = self.optimizer.minimize(self.reg_loss, var_list=[self.V, self.V_bias])
+        self.train_step_u = self.optimizer.minimize(self.l2_loss, var_list=[self.U, self.U_bias])
+        self.train_step_v = self.optimizer.minimize(self.l2_loss, var_list=[self.V, self.V_bias])
 
         t_vars=tf.trainable_variables()
         gru_vars = [var for var in t_vars if 'gru_cell' in var.name]
-        self.train_step_rnn = self.optimizer.minimize(self.reg_loss, var_list=[gru_vars])
+        self.train_step_rnn = self.optimizer.minimize(self.l2_loss, var_list=[gru_vars])
 
         tf.summary.scalar("RMSE", self.RMSE)
         tf.summary.scalar("MAE", self.MAE)
