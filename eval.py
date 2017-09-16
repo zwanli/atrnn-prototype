@@ -427,8 +427,8 @@ def test_4():
             validation_dataset = tf.contrib.data.TFRecordDataset(test_filename)
             training_dataset = tf.contrib.data.TFRecordDataset(train_filename)
 
-            validation_dataset = validation_dataset.repeat()
-            training_dataset = training_dataset.repeat()
+            # validation_dataset = validation_dataset.repeat()
+            # training_dataset = training_dataset.repeat()
 
             validation_dataset = validation_dataset.map(_parse_function)
             training_dataset = training_dataset.map(_parse_function)
@@ -446,108 +446,13 @@ def test_4():
                 training_init_op = iterator.make_initializer(training_dataset)
                 validation_init_op = iterator.make_initializer(validation_dataset)
 
-            else:
-                # A feedable iterator is defined by a handle placeholder and its structure. We
-                # could use the `output_types` and `output_shapes` properties of either
-                # `training_dataset` or `validation_dataset` here, because they have
-                # identical structure.
-                handle = tf.placeholder(tf.string, shape=[], name='handle')
-                iterator = tf.contrib.data.Iterator.from_string_handle(
-                    handle, training_dataset.output_types, training_dataset.output_shapes)
-                # You can use feedable iterators with a variety of different kinds of iterator
-                # (such as one-shot and initializable iterators).
-                training_iterator = training_dataset.make_one_shot_iterator()
-                validation_iterator = validation_dataset.make_one_shot_iterator()
-
             next_element = iterator.get_next()
 
             u_idx_t, v_idx_t, r_t, input_t, lengths_t = next_element
-            # capacity = 1500
-            # batch_size = 128
-            # bucket_boundaries = [x for x in range(50, 500, 50)]
-            # seq_len, outputs_b = tf.contrib.training.bucket_by_sequence_length(
-            #     lengths_t, tensors=[u_idx_t, v_idx_t, r_t, input_t, lengths_t],
-            #     allow_smaller_final_batch=True, \
-            #     batch_size=batch_size, bucket_boundaries=bucket_boundaries, \
-            #     capacity=capacity, dynamic_pad=True)
-            # u_idx, v_idx, r, input_text, seq_lengths = outputs_b
-
-            m = 2000
-            n = 50
-            k = 200
-            reg_lambda = 0.001
-            learning_rate = 0.01
-            rnn_output = tf.ones([batch_size,k])
-
-            # Network Parameters
-            n_hidden_1 = 256  # 1st layer number of neurons
-            n_hidden_2 = 256  # 2nd layer number of neurons
-            n_input = 784  # MNIST data input (img shape: 28*28)
-            n_classes = 10  # MNIST total classes (0-9 digits)
-
-            # Store layers weight & bias
-            weights = {
-                'h1': tf.Variable(tf.random_normal([n_input, n_hidden_1])),
-                'h2': tf.Variable(tf.random_normal([n_hidden_1, n_hidden_2])),
-                'out': tf.Variable(tf.random_normal([n_hidden_2, n_classes]))
-            }
-            biases = {
-                'b1': tf.Variable(tf.random_normal([n_hidden_1])),
-                'b2': tf.Variable(tf.random_normal([n_hidden_2])),
-                'out': tf.Variable(tf.random_normal([n_classes]))
-            }
-
-
-            # Update RNN output
-            with tf.device("/cpu:0"):
-                # RNN output [num_items, embedding_dim]
-                RNN = tf.get_variable(shape=[m, k], name='RNN_output', trainable=False, dtype=tf.float32
-                                           , initializer=tf.constant_initializer(0.))
-                update_rnn_output = tf.scatter_update(RNN, v_idx_t, rnn_output)
-
-
-            G = tf.nn.embedding_lookup(RNN,v_idx_t)
-
-            # U matrix [num_users, embeddings_dim]
-            U = weight_variable([n, k], 'U')
-            # V matrix [num_items, embeddings_dim]
-            V = weight_variable([m, k], 'V')
-
-            # U, V biases
-            U_bias = weight_variable([n], 'U_bias')
-            V_bias = weight_variable([m], 'V_bias')
-
-            # Users' raws form U matrix considered for the current batch [batch_size, embeddings_dim]
-            U_embed = tf.nn.embedding_lookup(U, u_idx_t)
-            # Items' raws form V matrix considered for the current batch [batch_size, embeddings_dim]
-            V_embed = tf.nn.embedding_lookup(V, v_idx_t)
-
-            U_bias_embed = tf.nn.embedding_lookup(U_bias, u_idx_t)
-            V_bias_embed = tf.nn.embedding_lookup(V_bias, v_idx_t)
-
-            F = tf.add(V_embed, G)
-
-            r_hat = tf.reduce_sum(tf.multiply(U_embed, F), reduction_indices=1)
-
-            # r_hat = tf.reduce_sum(tf.multiply(U_embed, V_embed), reduction_indices=1)
-            r_hat = tf.add(r_hat, U_bias_embed)
-            r_hat = tf.add(r_hat, V_bias_embed, name="R_predicted")
-
-            RMSE = tf.sqrt(tf.losses.mean_squared_error(r_t, r_hat))
-            l2_loss = tf.nn.l2_loss(tf.subtract(r_t, r_hat))
-            MAE = tf.reduce_mean(tf.abs(tf.subtract(r_t, r_hat)))
-            reg = tf.add(tf.multiply(reg_lambda, tf.nn.l2_loss(U)),
-                              tf.multiply(reg_lambda, tf.nn.l2_loss(V)))
-            reg_loss = tf.add(l2_loss, reg)
-
-            optimizer = tf.train.AdamOptimizer(learning_rate)
-
-            train_step_u = optimizer.minimize(reg_loss, var_list=[U, U_bias])
+            batch_size = tf.shape(u_idx_t)[0]
     with tf.Session() as sess:
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
-        coord = tf.train.Coordinator()
-
         try:
             for step in range(2):
                 # Initialize the training dataset
@@ -559,8 +464,10 @@ def test_4():
                 print('Training .....................................')
                 sess.run(training_init_op)
                 for _ in range(nb_batches_train):
-                    output = sess.run(update_rnn_output)
-                    print(np.count_nonzero(np.asarray(output[:,0])))
+                    output,b = sess.run([next_element,batch_size])
+                    sess.run(batch_size)
+                    print(b)
+                    # print(np.count_nonzero(np.asarray(output[:,0])))
 
                 # print('Validation .....................................')
                 # sess.run(validation_init_op)
@@ -571,14 +478,34 @@ def test_4():
         except Exception as e:
             print(e)
             # Report exceptions to the coordinator.
-            coord.request_stop(e)
-            print("Finished training")
         finally:
-            coord.request_stop()
+            print("Finshed training")
+
 
 def test_5():
-    print('test ')
+    with tf.device("/cpu:0"):
+        with tf.variable_scope('input'):
+            dataset = tf.contrib.data.Dataset.range(17)
+            dataset = dataset.repeat()
+            dataset = dataset.batch(5)
+            iterator = dataset.make_initializable_iterator()
+            next_element = iterator.get_next()
 
+    with tf.Session() as sess:
+        tf.global_variables_initializer().run()
+        tf.local_variables_initializer().run()
+        try:
+            sess.run(iterator.initializer)
+            for step in range(6):
+                print('iteration {0}'.format(step))
+                output = sess.run(next_element)
+                print(output)
+            print('Done')
+        except Exception as e:
+            print(e)
+            # Report exceptions to the coordinator.
+        finally:
+            print("Finshed training")
 
 def main():
     # batch_size = 1
@@ -661,7 +588,7 @@ def main():
     #     finally:
     #         coord.request_stop()
     #         coord.join(threads)
-    test_4()
+    test_5()
 
 
 if __name__ == '__main__':

@@ -18,8 +18,8 @@ from prettytable import  PrettyTable
 from utils import _int64_feature
 from utils import _bytes_feature
 from utils import _parse_function
-# import matplotlib
-# matplotlib.use('Agg')
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 '''
@@ -714,23 +714,3 @@ class DataParser(object):
             self.words = seen_words
 
 
-            #
-    # def get_test_idx(self):
-    #     ratings = np.zeros((self.user_count, self.paper_count))
-    #     fold = 0
-    #     for i, u in enumerate(self.test_ratings[fold]):
-    #         for v in u:
-    #             ratings[i][v] = 1
-    #
-    #     nonzero_u_idx = ratings.nonzero()[0]
-    #     nonzero_v_idx = ratings.nonzero()[1]
-    #     num_rating = np.count_nonzero(ratings)
-    #     idx = np.arange(num_rating)
-    #
-    #     test_u_idx = self.nonzero_u_idx[idx]
-    #     test_v_idx = self.nonzero_v_idx[idx]
-    #     test_m = ratings[test_u_idx, test_v_idx]
-    #     docs = [self.all_documents[x] for x in test_v_idx]
-    #     docs = np.array(docs)
-    #     return test_u_idx, test_v_idx, test_m, docs,ratings
-    #

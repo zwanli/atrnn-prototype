@@ -8,7 +8,6 @@ import pickle
 from data_parser import DataParser
 import utils
 from model import Model
-from model import Model_test
 from utils import convert_to_tfrecords
 from eval import evaluate
 import math
@@ -118,7 +117,7 @@ def input(args,parser):
     if args.dataset == 'citeulike-a':
         dataset_folder = args.data_dir + '/citeulike_a_extended'
     elif args.dataset == 'citeulike-t':
-        dataset_folder = args.data_dir + '/citeulike-t_extended'
+        dataset_folder = args.data_dir + '/citeulike_t_extended'
     elif args.dataset == 'dummy':
         dataset_folder = args.data_dir + '/dummy'
     else:
@@ -189,13 +188,13 @@ def input(args,parser):
 
 
 def train(args):
-    # #Read text input
-    parser = DataParser(args.data_dir,args.dataset,'attributes',
-                        use_embeddings=True,embed_dir=args.embedding_dir,embed_dim=args.embedding_dim)
-    dataset_path,dataset_count = input(args,parser)
+    parser = DataParser(args.data_dir, args.dataset, 'attributes',
+                        use_embeddings=True, embed_dir=args.embedding_dir, embed_dim=args.embedding_dim)
+    # read input data
+    dataset_path, dataset_count = input(args, parser)
+    args.vocab_size = parser.get_vocab_size()
 
     for fold in range(args.folds):
-
         path_training = dataset_path[fold][0]
         path_test = dataset_path[fold][1]
 
@@ -205,11 +204,14 @@ def train(args):
         nb_batches_train = int(math.ceil(example_count_train / args.batch_size))
         print('Number of training batches {0}, number of samples {1}'.format(nb_batches_train, example_count_train))
         nb_batches_val = int(math.ceil(example_count_validation / args.batch_size))
-        print('Number of validation batches {0}, number of samples {1}'.format(nb_batches_val, example_count_validation))
+        print(
+            'Number of validation batches {0}, number of samples {1}'.format(nb_batches_val, example_count_validation))
+    # calcate the size of the last batch, it might be smaller than the default batch_size
+    last_batch_size = example_count_train % args.batch_size
 
-    print('Vocabolary size {0}'.format(parser.words_count))
-    print("Uknown words {0}".format(parser.unkown_words_count))
-    print("Uknown numbers {0}".format(parser.numbers_count))
+    print('Vocabulary size {0}'.format(parser.words_count))
+    print("Unknown words {0}".format(parser.unkown_words_count))
+    print("Unknown numbers {0}".format(parser.numbers_count))
 
     dir_prefix = time.strftime("%d:%m-%H:%M:")
     # Checkpoints directory
@@ -224,85 +226,79 @@ def train(args):
 
     graph = tf.Graph()
     with graph.as_default():
-        model = Model(args, parser.get_ratings_matrix(),parser.embeddings,path_training,path_test)
-        train_writer = tf.summary.FileWriter(args.log_dir+ '/{0}-train'.format(dir_prefix))
+        model = Model(args, parser.get_ratings_matrix(), parser.embeddings, path_training, path_test)
+        train_writer = tf.summary.FileWriter(args.log_dir + '/{0}-train'.format(dir_prefix))
         valid_writer = tf.summary.FileWriter(args.log_dir + '/{0}-validation'.format(time.strftime(dir_prefix)))
         test_writer = tf.summary.FileWriter(args.log_dir + '/{0}-test'.format(time.strftime(dir_prefix)))
 
-
     def construct_feed(bi_hid_fw, bi_hid_bw):
         return {model.init_state_fw: bi_hid_fw, model.init_state_bw: bi_hid_bw}
-                # model.initial_state: hid_state,
+        # model.initial_state: hid_state,
 
     config = tf.ConfigProto()
     config.gpu_options.allocator_type = 'BFC'
 
     n_steps = args.num_epochs
-    with tf.Session(config=config,graph=graph) as sess:
+    with tf.Session(config=config, graph=graph) as sess:
         print('Saving graph to disk...')
-        train_writer.add_graph(sess.graph)
+        # train_writer.add_graph(sess.graph)
         # valid_writer.add_graph(sess.graph)
         # test_writer.add_graph(sess.graph)
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
 
-        print("Getting test ratings matrix")
-        test_ratings = utils.get_test_ratings_matrix(path_test,parser.user_count,parser.paper_count,sess)
+        print("Loading test ratings matrix")
+        test_ratings = utils.get_test_ratings_matrix(path_test, parser.user_count, parser.paper_count, sess)
 
         bi_state_fw = sess.run(model.init_state_bw)
         bi_state_bw = sess.run(model.init_state_fw)
         h_state = sess.run(model.initial_state)
 
-        # for op in tf.get_default_graph().get_operations():
-        #     print (str(op.name))
-        # print('--------------------')
-        # for n in tf.get_default_graph().as_graph_def().node:
-        #     print(n.name)
         try:
+            # for step in range(n_steps):
             for step in range(n_steps):
-                print('{0}: Epoch {1}'.format(time.strftime("%d:%m-%H:%M:"),step))
+                print('{0}: Epoch {1}'.format(time.strftime("%d:%m-%H:%M:"), step))
                 print('Training .....................................')
                 # Initialize the training dataset iterator
                 sess.run(model.train_init_op)
-                feed = construct_feed(bi_state_fw, bi_state_bw)
+                feed_dict = construct_feed(bi_state_fw, bi_state_bw)
 
+                fetches = [model.joint_train_step,
+                           model.update_rnn_output,
+                           model.U, model.V, model.RNN, model.U_bias, model.V_bias,
+                           model.bi_output_state_fw, model.bi_output_state_bw, model.H,
+                           model.RMSE, model.MAE, model.summary_op]
                 start = time.time()
-                for batch in range(nb_batches_train):
-                    sess.run(model.train_step_v, feed_dict=feed)
-                    sess.run(model.train_step_u, feed_dict=feed)
-                    _,_, U, V, rnn_output, U_b, V_b, bi_out_fw, bi_out_bw, final_state, rmse, mae, summary_str = sess.run(
-                        [model.train_step_rnn,model.update_rnn_output,
-                         model.U,model.V, model.RNN, model.U_bias, model.V_bias,
-                         model.bi_output_state_fw, model.bi_output_state_bw, model.H,
-                         model.RMSE, model.MAE, model.summary_op],
-                        feed_dict=feed)
-                    if batch // 10 % 50 == 0:
-                        print("Epoch {0}, batch {1}".format(step,batch))
-                train_writer.add_summary(summary_str, step)
 
+                for batch in range(nb_batches_train):
+                    _, _, U, V, rnn_output, U_b, V_b, bi_out_fw, bi_out_bw, final_state, rmse, mae, summary_str = \
+                        sess.run(fetches, feed_dict=feed_dict)
+                    # print every 500 iteration
+                    if batch // 10 % 50 == 0:
+                        print("Epoch {0}, batch {1}".format(step, batch))
+                    train_writer.add_summary(summary_str, global_step=(step * nb_batches_train + batch))
                 end = time.time()
                 print('Epoch {0}, finished in {1}'.format(step, end - start))
-                if False and step // 10 % 5 == 0:
-                    print('{0}:Validation ............'.format(time.strftime("%d:%m-%H:%M:" )))
+                if True:# or step // 1 % 5 == 0:
+                    print('{0}:Validation ............'.format(time.strftime("%d:%m-%H:%M:")))
 
-                    # save a checkpoint (every 500 batches)
-                    if step // 10%50 == 0 and step > 10 :
+                    # save a checkpoint (every 5 epochs)
+                    if step // 1 % 5 == 0 and step > 4:
                         saved_file = model.saver.save(sess, ckpt_dir, global_step=step)
                         print("Saved file: " + saved_file)
 
-                    #Initialize the validation dataset iterator
+                    # Initialize the validation dataset iterator
                     sess.run(model.validation_init_op)
-                    for _ in range(nb_batches_val):
-                        test_bi_fw = sess.run(model.init_state_fw)
-                        test_bi_bw = sess.run(model.init_state_bw)
-                        init_state = sess.run(model.initial_state)
-                        feed_dict = construct_feed(test_bi_fw, test_bi_bw)
+                    test_bi_fw = sess.run(model.init_state_fw)
+                    test_bi_bw = sess.run(model.init_state_bw)
+                    init_state = sess.run(model.initial_state)
+                    feed_dict = construct_feed(test_bi_fw, test_bi_bw)
+                    for batch in range(nb_batches_val):
                         rmse_test, mae_test, summary_str = sess.run(
                             [model.RMSE, model.MAE, model.summary_op], feed_dict=feed_dict)
+                        test_writer.add_summary(summary_str, global_step=(step * nb_batches_val + batch))
 
-                    test_writer.add_summary(summary_str, step)
-
-                    prediction_matrix = np.matmul(U, np.add(V,rnn_output).T)
+                    prediction_matrix = np.matmul(U, np.add(V, rnn_output).T)
                     prediction_matrix = np.add(prediction_matrix, np.reshape(U_b, [-1, 1]))
                     prediction_matrix = np.add(prediction_matrix, V_b)
                     rounded_predictions = utils.rounded_predictions(prediction_matrix)
@@ -315,7 +311,7 @@ def train(args):
                     ndcg_at_five = evaluator.calculate_ndcg(5, rounded_predictions)
                     ndcg_at_ten = evaluator.calculate_ndcg(10, rounded_predictions)
 
-                    mrr_at_ten = evaluator.calculate_mrr(10,rounded_predictions)
+                    mrr_at_ten = evaluator.calculate_mrr(10, rounded_predictions)
 
                     feed = {model.recall: recall, model.recall_10: recall_10, model.recall_50: recall_50,
                             model.recall_100: recall_100, model.recall_200: recall_200,
@@ -347,39 +343,8 @@ def train(args):
                 h_state = final_state
                 bi_state_fw = bi_out_fw
                 bi_state_bw = bi_out_bw
-                # if step > 0 and (step % args.save_every == 0 or ( step == args.num_epochs - 1)):  # save for the last result
-                #     checkpoint_path = os.path.join(args.save_dir, 'model.ckpt')
-                #     saver.save(sess, checkpoint_path, global_step=step)
-                #     print("model saved to {}".format(checkpoint_path))
             model.saver.save(sess, args.log_dir + "/{0}model.ckpt".format(time.strftime(dir_prefix)))
             print('Best test rmse:', best_test_rmse, 'Best test mae', best_test_mae, sep=' ')
-            # restore model
-            # if args.init_from is not None:
-            #     saver.restore(sess, ckpt.model_checkpoint_path)
-            # for e in range(model.epoch_pointer.eval(), args.num_epochs):
-            #     sess.run(tf.assign(model.lr, args.learning_rate * (args.decay_rate ** e)))
-            #     data_loader.reset_batch_pointer()
-            #     state = sess.run(model.initial_state)
-            #     speed = 0
-            #     for b in range(data_loader.pointer, data_loader.num_batches):
-            #         start = time.time()
-            #         x, y = data_loader.next_batch()
-            #         feed = {model.input_data: x, model.targets: y, model.initial_state: state,
-            #                 model.batch_time: speed}
-            #         summary, train_loss, state, _, _ = sess.run([merged, model.cost, model.final_state,
-            #                                                      model.train_op, model.inc_batch_pointer_op], feed)
-            #         train_writer.add_summary(summary, e * data_loader.num_batches + b)
-            #         speed = time.time() - start
-            #         if (e * data_loader.num_batches + b) % args.batch_size == 0:
-            #             print("{}/{} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}" \
-            #                 .format(e * data_loader.num_batches + b,
-            #                         args.num_epochs * data_loader.num_batches,
-            #                         e, train_loss, speed))
-            #         if (e * data_loader.num_batches + b) % args.save_every == 0 \
-            #                 or (e==args.num_epochs-1 and b == data_loader.num_batches-1): # save for the last result
-            #             checkpoint_path = os.path.join(args.save_dir, 'model.ckpt')
-            #             saver.save(sess, checkpoint_path, global_step = e * data_loader.num_batches + b)
-            #             print("model saved to {}".format(checkpoint_path))
             train_writer.close()
             valid_writer.close()
             test_writer.close()
@@ -388,6 +353,8 @@ def train(args):
             print(e)
             # coord.request_stop(e)
             print("Finished training")
+
+
 
 def partial_run(args):
     parser = DataParser(args.data_dir, args.dataset, 'attributes',
@@ -408,12 +375,15 @@ def partial_run(args):
         nb_batches_val = int(math.ceil(example_count_validation / args.batch_size))
         print(
             'Number of validation batches {0}, number of samples {1}'.format(nb_batches_val, example_count_validation))
+    # calcate the size of the last batch, it might be smaller than the default batch_size
+    last_batch_size = example_count_train % args.batch_size
 
     print('Vocabolary size {0}'.format(parser.words_count))
     print("Uknown words {0}".format(parser.unkown_words_count))
     print("Uknown numbers {0}".format(parser.numbers_count))
 
-    dir_prefix = time.strftime("%d:%m-%H:%M:")
+    dir_prefix = '{0}-{1}-{2}-{3}'.format(time.strftime("%d:%m-%H:%M:"),args.dataset,args.split,args.max_length)
+
     # Checkpoints directory
     ckpt_dir = os.path.join(args.log_dir, 'checkpoints/{0}-train'.format(dir_prefix))
 
@@ -441,7 +411,7 @@ def partial_run(args):
     n_steps = args.num_epochs
     with tf.Session(config=config, graph=graph) as sess:
         print('Saving graph to disk...')
-        train_writer.add_graph(sess.graph)
+        # train_writer.add_graph(sess.graph)
         # valid_writer.add_graph(sess.graph)
         # test_writer.add_graph(sess.graph)
         tf.global_variables_initializer().run()
@@ -486,7 +456,6 @@ def partial_run(args):
                 start = time.time()
 
                 for batch in range(nb_batches_train):
-                # for batch in range(3):
                     handle = sess.partial_run_setup(fetches, feeds)
                     sess.partial_run(handle, dummy_train_step_rnn, feed_dict=feed_dict)
                     sess.partial_run(handle,dummy_train_step_v)
@@ -498,11 +467,12 @@ def partial_run(args):
                          model.RMSE, model.MAE, model.summary_op])
                     # print every 500 iteration
                     if batch // 10 % 50 == 0:
+                    # if True:
                         print("Epoch {0}, batch {1}".format(step, batch))
                     train_writer.add_summary(summary_str, global_step=(step*nb_batches_train + batch))
                 end = time.time()
                 print('Epoch {0}, finished in {1}'.format(step,end - start))
-                if True or step // 1 % 5 == 0:
+                if True:# or step // 1 % 5 == 0:
                     print('{0}:Validation ............'.format(time.strftime("%d:%m-%H:%M:")))
 
                     # save a checkpoint (every 5 epochs)
