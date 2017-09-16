@@ -26,7 +26,7 @@ def main():
     parser.add_argument('--input_encoding', type=str, default=None,
                         help='character encoding of input.txt, from https://docs.python.org/3/library/codecs.html#standard-encodings')
     parser.add_argument('--folds', type=int, default=5, help='Number of folds')
-    parser.add_argument('--split',type=str,default='warm', help='The splitting strategy',choices=['warm','cold'])
+    parser.add_argument('--split',type=str,default='cold', help='The splitting strategy',choices=['warm','cold'])
     parser.add_argument('--log_dir', type=str, default='logs',
                         help='directory containing tensorboard logs')
     parser.add_argument('--save_dir', type=str, default='save',
@@ -39,7 +39,7 @@ def main():
                         help='Choose the RNN cell type', choices=['rnn, gru, or lstm'])
     parser.add_argument('--batch_size', type=int, default=32,
                         help='minibatch size')
-    parser.add_argument('--max_length', type=int, default=1000,
+    parser.add_argument('--max_length', type=int, default=300,
                         help='Maximum document length')
     parser.add_argument('--num_epochs', type=int, default=10,
                         help='number of epochs')
@@ -67,18 +67,20 @@ def main():
     partial_run(args)
 
 
-def load_abstracts(parser,dataset):
-    if os.path.exists('abstracts_word_idx_{}.pkl'.format(dataset)):
+def load_abstracts(parser,dataset_folder):
+    abstracts_word_idx_filename = os.path.join(dataset_folder,'abstracts_word_idx.pkl')
+    if os.path.exists(abstracts_word_idx_filename):
         print('Loading abstracts')
-        with open('abstracts_word_idx_{}.pkl'.format(dataset), 'rb') as f:
+        with open(abstracts_word_idx_filename, 'rb') as f:
             parser.all_documents = pickle.load(f)
     else:
         parser.get_papar_as_word_ids()
-        with open("abstracts_word_idx_{}.pkl".format(dataset),'wb') as f:
-            pickle.dump(parser.all_documents,f,pickle.HIGHEST_PROTOCOL)
+        with open(abstracts_word_idx_filename,'wb') as f:
+            pickle.dump(parser.all_documents, f, pickle.HIGHEST_PROTOCOL)
             print("Saved abstracts")
     #delete raw data, save memory
     parser.del_raw_data()
+
 
 def num_samples(path):
     c = 0
@@ -88,13 +90,30 @@ def num_samples(path):
         c += 1
     return c
 
+def load_embeddings(parser):
+    embeddings_tfrecord = os.path.join(parser.dataset_folder,
+                                       '{0}_{1}_embeddings.tfrecord'.format(parser.dataset, parser.embed_dim))
+    if os.path.exists(embeddings_tfrecord):
+        # load embeddings
+        # parser.load_embeddings(filename=embeddings_tfrecord)
+        parser.load_glove_embeddings()
+
+    else:
+        # load glove embeddings
+        parser.load_glove_embeddings()
+        if not parser.all_documents:
+            load_abstracts(parser, parser.dataset_folder)
+        parser.save_embeddings(embeddings_tfrecord)
+        # del parser.embeddings
+        # del parser.embed_vocab
+        # del parser.embed_word_to_id
+        # parser.load_embeddings(embeddings_tfrecord)
 
 def input(args,parser):
     # Read text input
     # parser = DataParser(args.data_dir, args.dataset, None,
     #                     use_embeddings=True, embed_dir=args.embedding_dir, embed_dim=args.embedding_dim)
-    parser.load_embeddings()
-    args.vocab_size = parser.get_vocab_size()
+
 
     if args.dataset == 'citeulike-a':
         dataset_folder = args.data_dir + '/citeulike_a_extended'
@@ -107,7 +126,7 @@ def input(args,parser):
         dataset_folder = args.data_dir + '/dummy'
 
     #A dict that has the paths of all the training/test files for all folds
-    all_folds_dataests ={}
+    all_folds_datasets ={}
 
     train_folder = os.path.join(dataset_folder,'{0}-{1}'.format('warm' if args.split == 'warm' else 'cold','train'))
     try:
@@ -127,7 +146,7 @@ def input(args,parser):
             print("File already exists {0}".format(train_file))
         else:
             if not parser.train_ratings:
-                load_abstracts(parser, args.dataset)
+                load_abstracts(parser, dataset_folder)
                 if args.split == 'warm':
                     parser.split_warm_start_item(args.folds)
                 elif args.split == 'cold':
@@ -139,7 +158,7 @@ def input(args,parser):
             print("File already exists {0}".format(test_file))
         else:
             if not parser.test_ratings:
-                load_abstracts(parser, args.dataset)
+                load_abstracts(parser, dataset_folder)
                 # parser.split_cold_start(5)
                 if args.split == 'warm':
                     parser.split_warm_start_item(args.folds)
@@ -147,22 +166,25 @@ def input(args,parser):
                     parser.split_cold_start(args.folds)
             convert_to_tfrecords(test_file, parser, fold, args.max_length, test=True)
         #Add the train and test files' paths
-        all_folds_dataests[fold]=(train_file,test_file)
+        all_folds_datasets[fold]=(train_file,test_file)
 
     sample_count ={}
     for fold in range(args.folds):
-        count_tr = num_samples(all_folds_dataests[fold][0])
+        count_tr = num_samples(all_folds_datasets[fold][0])
         # Path of the training fold
         print('Total number of train samples in fold {0}: {1}'.format(fold, count_tr))
 
-        count_test = num_samples(all_folds_dataests[fold][1])
+        count_test = num_samples(all_folds_datasets[fold][1])
         # Path of the testing fold
         print('Total number of test  samples in fold {0}: {1}'.format(fold,count_test ))
 
         sample_count[fold]=(count_tr,count_test)
 
+    load_embeddings(parser)
+
     print('Finished parsing the input')
-    return all_folds_dataests,sample_count
+    return all_folds_datasets,sample_count
+
 
 
 
@@ -368,10 +390,11 @@ def train(args):
             print("Finished training")
 
 def partial_run(args):
-    # #Read text input
     parser = DataParser(args.data_dir, args.dataset, 'attributes',
                         use_embeddings=True, embed_dir=args.embedding_dir, embed_dim=args.embedding_dim)
+    # read input data
     dataset_path, dataset_count = input(args, parser)
+    args.vocab_size = parser.get_vocab_size()
 
     for fold in range(args.folds):
         path_training = dataset_path[fold][0]
@@ -424,14 +447,17 @@ def partial_run(args):
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
 
-        print("Getting test ratings matrix")
+        print("Loading test ratings matrix")
         test_ratings = utils.get_test_ratings_matrix(path_test, parser.user_count, parser.paper_count, sess)
+
+
 
         bi_state_fw = sess.run(model.init_state_bw)
         bi_state_bw = sess.run(model.init_state_fw)
         h_state = sess.run(model.initial_state)
 
         try:
+            # for step in range(n_steps):
             for step in range(n_steps):
                 print('{0}: Epoch {1}'.format(time.strftime("%d:%m-%H:%M:"), step))
                 print('Training .....................................')
@@ -458,7 +484,9 @@ def partial_run(args):
                          model.bi_output_state_fw, model.bi_output_state_bw, model.H,
                          model.RMSE, model.MAE, model.summary_op]
                 start = time.time()
+
                 for batch in range(nb_batches_train):
+                # for batch in range(3):
                     handle = sess.partial_run_setup(fetches, feeds)
                     sess.partial_run(handle, dummy_train_step_rnn, feed_dict=feed_dict)
                     sess.partial_run(handle,dummy_train_step_v)
@@ -468,16 +496,17 @@ def partial_run(args):
                          model.U, model.V, model.RNN, model.U_bias, model.V_bias,
                          model.bi_output_state_fw, model.bi_output_state_bw, model.H,
                          model.RMSE, model.MAE, model.summary_op])
+                    # print every 500 iteration
                     if batch // 10 % 50 == 0:
                         print("Epoch {0}, batch {1}".format(step, batch))
-                train_writer.add_summary(summary_str, step)
+                    train_writer.add_summary(summary_str, global_step=(step*nb_batches_train + batch))
                 end = time.time()
                 print('Epoch {0}, finished in {1}'.format(step,end - start))
-                if False and step // 10 % 5 == 0:
+                if True or step // 1 % 5 == 0:
                     print('{0}:Validation ............'.format(time.strftime("%d:%m-%H:%M:")))
 
-                    # save a checkpoint (every 500 batches)
-                    if step // 10 % 50 == 0 and step > 10:
+                    # save a checkpoint (every 5 epochs)
+                    if step // 1 % 5 == 0 and step > 4:
                         saved_file = model.saver.save(sess, ckpt_dir, global_step=step)
                         print("Saved file: " + saved_file)
 
@@ -487,11 +516,11 @@ def partial_run(args):
                     test_bi_bw = sess.run(model.init_state_bw)
                     init_state = sess.run(model.initial_state)
                     feed_dict = construct_feed(test_bi_fw, test_bi_bw)
-                    for _ in range(nb_batches_val):
+                    for batch in range(nb_batches_val):
                         rmse_test, mae_test, summary_str = sess.run(
                             [model.RMSE, model.MAE, model.summary_op], feed_dict=feed_dict)
+                        test_writer.add_summary(summary_str, global_step=(step*nb_batches_val + batch))
 
-                    test_writer.add_summary(summary_str, step)
 
                     prediction_matrix = np.matmul(U, np.add(V, rnn_output).T)
                     prediction_matrix = np.add(prediction_matrix, np.reshape(U_b, [-1, 1]))

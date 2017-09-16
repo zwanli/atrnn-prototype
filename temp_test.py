@@ -400,7 +400,7 @@ def train(args):
     #Read text input
     parser = DataParser(args.data_dir,args.dataset,None,
                         use_embeddings=True,embed_dir=args.embedding_dir,embed_dim=args.embedding_dim)
-    parser.load_embeddings()
+    parser.load_glove_embeddings()
     args.vocab_size = parser.get_vocab_size()
     if os.path.exists('abstracts_word_embeddings_{}.pkl'.format(args.dataset)):
         print('Loading abstracts')

@@ -27,12 +27,24 @@ class Model():
         self.n, self.m = M.shape
         self.k = args.embedding_dim
         self.learning_rate = args.learning_rate
+        self.maxlen = args.max_length
         # self.batch_size = args.batch_size
         self.reg_lambda = tf.constant(reg_lambda, dtype=tf.float32)
         self.batch_size = args.batch_size
 
         outputs,init_ops = get_input_dataset(train_filename,test_filename,batch_size=self.batch_size)
         self.u_idx,self.v_idx, self.r, self.input_text, self.seq_lengths = outputs
+
+        # # limit the input_text sequence length [batch_size, max_lenght]
+        # # if self.input_text.shape[1] > self.maxlen:
+        # #     self.input_text = tf.slice(self.input_text, [0, 0], [-1, ])
+        # def f1():
+        #     return tf.slice(self.input_text, [0, 0], [-1, self.maxlen])
+        #
+        # def f2():
+        #     return self.input_text
+        # self.input_text = tf.cond(tf.less(self.maxlen,self.input_text.shape[1]),f1,f2)
+
         self.v_idx = tf.reshape(self.v_idx,shape=[self.batch_size])
         self.train_init_op, self.validation_init_op = init_ops
 
@@ -58,7 +70,7 @@ class Model():
         with tf.variable_scope('rnnlm'):
             with tf.device("/cpu:0"):
                 vocab_size = args.vocab_size
-                embedding_dim = len(embed[0])
+                embedding_dim = args.embedding_dim
                 embeddings = np.asarray(embed)
                 # embeddings = tf.get_variable("embeddings", shape=[dim1, dim2], initializer=tf.constant_initializer(np.array(embeddings_matrix))
                 embedding = tf.get_variable(name="embedding", shape=[vocab_size, embedding_dim],

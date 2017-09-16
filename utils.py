@@ -1,4 +1,3 @@
-# from keras.preprocessing.sequence import pad_sequences
 import tensorflow as tf
 import os
 import sys

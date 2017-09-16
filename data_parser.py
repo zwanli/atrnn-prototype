@@ -17,7 +17,7 @@ import tensorflow as tf
 from prettytable import  PrettyTable
 from utils import _int64_feature
 from utils import _bytes_feature
-
+from utils import _parse_function
 # import matplotlib
 # matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -51,6 +51,7 @@ class DataParser(object):
             print("Warning: Given dataset not known, setting to citeulike-a")
             self.dataset_folder = self.base_folder + '/citeulike_a_extended'
 
+
         if use_embeddings:
             self.use_pre_trained_embed = True
             if 'embed_dir' in kwargs.keys():
@@ -58,7 +59,7 @@ class DataParser(object):
             if 'embed_dim' in kwargs.keys():
                 self.embed_dim = kwargs['embed_dim']
             self.embed_vocab = []
-            self.embeddings = []
+            self.embeddings = None
             self.embed_word_to_id = {}
 
 
@@ -229,10 +230,54 @@ class DataParser(object):
         #     print('Number of unique {0} {1}, frequencies {2}'.format(feature,len(uniqe_freq[feature][0]), uniqe_freq[feature][1]))
         #     print('', end="")
 
-    def load_embeddings(self):
+    def _embedding_parse_function(self,example_proto):
+        feature = {'word': tf.FixedLenFeature([], tf.string),
+                   'glove_id': tf.FixedLenFeature([], tf.int64),
+                   'embed': tf.FixedLenFeature([self.embed_dim], tf.float32)}
+        # Decode the record read by the reader
+        features = tf.parse_single_example(example_proto,feature)
+        word = tf.cast(features['word'], tf.string)
+        glove_id = tf.cast(features['glove_id'], tf.int32)
+        embed = tf.cast(features['embed'], tf.float32)
+
+        return word, glove_id, embed
+
+    def load_embeddings(self, filename):
+        print('Loading embeddings {0} ...'.format(filename))
+        self.embeddings = {}
+        # # Creates a dataset that reads all of the examples from filenames.
+        # dataset = tf.contrib.data.TFRecordDataset(filename)
+        # dataset = dataset.map(self._embedding_parse_function)
+        # iterator = dataset.make_one_shot_iterator()
+        # next_element = iterator.get_next()
+        # try:
+        #     while True:
+        #         word, glove_id, embed = sess.run(next_element)
+        #         self.embed_vocab.append(word)
+        #         self.embeddings[glove_id] = embed
+        #         self.embed_word_to_id[word] = glove_id
+        # except Exception as e:
+        #     print("Finished reading embeddings")
+
+        # features = {'word': tf.FixedLenFeature([], tf.string),
+        #            'glove_id': tf.FixedLenFeature([], tf.int64),
+        #            'embed': tf.FixedLenFeature([self.embed_dim], tf.float32)}
+        for record in tf.python_io.tf_record_iterator(filename):
+            example = tf.train.Example()
+            example.ParseFromString(record)
+            glove_id = example.features.feature['glove_id'].int64_list.value[0]
+            word = (example.features.feature['word'].bytes_list.value[0]).decode("utf-8")
+            embed = example.features.feature['embed'].float_list.value[:]
+            self.embed_vocab.append(word)
+            self.embeddings[glove_id] = embed
+            self.embed_word_to_id[word] = glove_id
+
+    def load_glove_embeddings(self):
+
         # Load pre-trained embeddings
         f = open(os.path.join(self.embed_dir, 'glove.6B.{0}d.txt'.format(self.embed_dim)))
-        print("Loading embeddings  " + str(f.name))
+        print("Loading GloVe embedding data  " + str(f.name))
+        self.embeddings = []
         for line in f:
             row = line.split()
             word = row[0]
@@ -640,25 +685,34 @@ class DataParser(object):
 
 
 
-    def save_embeddings(self):
-        for word in self.words.keys():
-            word_id = self.get_word_id(word.lower())
-            word_embed = self.embeddings[word_id]
-            path = os.path.join(self.dataset_folder,'{0}_{1}.embeddings'.format(self.dataset,self.embed_dim ))
-            print('Writing', path)
-            writer = tf.python_io.TFRecordWriter(path)
-            # Create a feature
-            feature = {'word': _bytes_feature(tf.compat.as_bytes(word)),
-                       'glove_id': _int64_feature(word_id),
-                       'embed': tf.train.Feature(int64_list=tf.train.Int64List(value=[word_embed]))}
-            # Create an example protocol buffer
-            example = tf.train.Example(features=tf.train.Features(feature=feature))
+    def save_embeddings(self,filename):
+        if bool(self.all_documents):
+            # path = os.path.join(self.dataset_folder, '{0}_{1}.embeddings'.format(self.dataset, self.embed_dim))
+            print('Writing embeddings data {0} ...'.format(filename) )
+            writer = tf.python_io.TFRecordWriter(filename)
+            #Word idx that have been seen before
+            seen_words = {}
+            for doc in self.all_documents.values():
+                for word_id in doc:
+                    if word_id in seen_words.keys():
+                        seen_words[word_id] += 1
+                        continue
+                    else:
+                        seen_words[word_id] = 1
+                    # Create a feature
+                        word_embed = self.embeddings[word_id]
+                        feature = {'word': _bytes_feature(tf.compat.as_bytes(self.embed_vocab[word_id])),
+                                   'glove_id': _int64_feature(word_id),
+                                   'embed': tf.train.Feature(float_list=tf.train.FloatList(value=word_embed))}
+                        # Create an example protocol buffer
+                        example = tf.train.Example(features=tf.train.Features(feature=feature))
+                        # Serialize to string and write on the file
+                        writer.write(example.SerializeToString())
+            writer.close()
+            sys.stdout.flush()
+            self.words_count = len(seen_words.keys())
+            self.words = seen_words
 
-            # Serialize to string and write on the file
-            writer.write(example.SerializeToString())
-
-        writer.close()
-        sys.stdout.flush()
 
             #
     # def get_test_idx(self):
