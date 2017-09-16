@@ -213,7 +213,7 @@ def train(args):
     print("Unknown words {0}".format(parser.unkown_words_count))
     print("Unknown numbers {0}".format(parser.numbers_count))
 
-    dir_prefix = time.strftime("%d:%m-%H:%M:")
+    dir_prefix = '{0}-{1}-{2}-{3}'.format(time.strftime("%d:%m-%H:%M:"),args.dataset,args.split,args.max_length)
     # Checkpoints directory
     ckpt_dir = os.path.join(args.log_dir, 'checkpoints/{0}-train'.format(dir_prefix))
 
