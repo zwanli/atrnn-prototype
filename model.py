@@ -179,14 +179,14 @@ class Model():
 
         self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
 
-        self.joint_train_step = self.optimizer.minimize(self.l2_loss)
+        self.joint_train_step = self.optimizer.minimize(self.reg_loss)
 
-        self.train_step_u = self.optimizer.minimize(self.l2_loss, var_list=[self.U, self.U_bias])
-        self.train_step_v = self.optimizer.minimize(self.l2_loss, var_list=[self.V, self.V_bias])
+        self.train_step_u = self.optimizer.minimize(self.reg_loss, var_list=[self.U, self.U_bias])
+        self.train_step_v = self.optimizer.minimize(self.reg_loss, var_list=[self.V, self.V_bias])
 
         t_vars=tf.trainable_variables()
         gru_vars = [var for var in t_vars if 'gru_cell' in var.name]
-        self.train_step_rnn = self.optimizer.minimize(self.l2_loss, var_list=[gru_vars])
+        self.train_step_rnn = self.optimizer.minimize(self.reg_loss, var_list=[gru_vars])
 
         tf.summary.scalar("RMSE", self.RMSE)
         tf.summary.scalar("MAE", self.MAE)

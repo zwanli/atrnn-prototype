@@ -299,7 +299,8 @@ def train(args):
                     test_bi_fw = sess.run(model.init_state_fw)
                     test_bi_bw = sess.run(model.init_state_bw)
                     init_state = sess.run(model.initial_state)
-                    feed_dict = construct_feed(test_bi_fw, test_bi_bw)
+                    # don't dropout
+                    feed_dict = construct_feed(test_bi_fw, test_bi_bw,0,0,0)
                     for batch in range(nb_batches_val):
                         rmse_test, mae_test, summary_str = sess.run(
                             [model.RMSE, model.MAE, model.summary_op], feed_dict=feed_dict)
