@@ -13,7 +13,7 @@ def bias_variable(shape, name):
     return tf.get_variable(name, shape, initializer=b_init)
 
 class Model():
-    def __init__(self, args, M, embed,train_filename,test_filename, reg_lambda=0.01,name='tr'):
+    def __init__(self, args, M, embed,train_filename,test_filename,enabel_dropout=False, reg_lambda=0.01,name='tr'):
         self.args = args
         self.dataset = args.dataset
         if args.model == 'rnn':
@@ -83,15 +83,17 @@ class Model():
             '''
 
             cell_fw = cell_fn(args.rnn_size)
-            cell_fw = rnn.DropoutWrapper(
-                cell_fw, input_keep_prob=1.0-self.dropout_bidir_layer, output_keep_prob=1.0-self.dropout_bidir_layer,
-                state_keep_prob = 1.0-self.dropout_bidir_layer,
-                dtype=tf.float32, variational_recurrent=True, input_size= embedding_dim)
+            if enabel_dropout:
+                cell_fw = rnn.DropoutWrapper(
+                    cell_fw, input_keep_prob=1.0-self.dropout_bidir_layer, output_keep_prob=1.0-self.dropout_bidir_layer,
+                    state_keep_prob = 1.0-self.dropout_bidir_layer,
+                    dtype=tf.float32, variational_recurrent=True, input_size= embedding_dim)
             cell_bw = cell_fn(args.rnn_size)
-            cell_bw = tf.contrib.rnn.DropoutWrapper(
-                cell_bw, input_keep_prob=1.0-self.dropout_bidir_layer, output_keep_prob=1.0-self.dropout_bidir_layer,
-                state_keep_prob=1.0-self.dropout_bidir_layer,
-                dtype=tf.float32, variational_recurrent=True, input_size= embedding_dim)
+            if enabel_dropout:
+                cell_bw = tf.contrib.rnn.DropoutWrapper(
+                    cell_bw, input_keep_prob=1.0-self.dropout_bidir_layer, output_keep_prob=1.0-self.dropout_bidir_layer,
+                    state_keep_prob=1.0-self.dropout_bidir_layer,
+                    dtype=tf.float32, variational_recurrent=True, input_size= embedding_dim)
             self.init_state_fw =cell_bw.zero_state(self.batch_size, tf.float32)
             self.init_state_bw =cell_fw.zero_state(self.batch_size, tf.float32)
 
@@ -109,11 +111,11 @@ class Model():
             cells = []
             for _ in range(args.num_layers):
                 cell = cell_fn(args.rnn_size)
-
-                cell = rnn.DropoutWrapper(
-                    cell, input_keep_prob=1.0-self.dropout_second_layer, output_keep_prob=1.0-self.dropout_second_layer,
-                    state_keep_prob=1.0-self.dropout_second_layer)
-                    #dtype=tf.float32, variational_recurrent=True, input_size= embedding_dim*2)
+                if enabel_dropout:
+                    cell = rnn.DropoutWrapper(
+                        cell, input_keep_prob=1.0-self.dropout_second_layer, output_keep_prob=1.0-self.dropout_second_layer,
+                        state_keep_prob=1.0-self.dropout_second_layer)
+                        #dtype=tf.float32, variational_recurrent=True, input_size= embedding_dim*2)
                 cells.append(cell)
 
             self.cell = cell = rnn.MultiRNNCell(cells)
