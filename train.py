@@ -122,18 +122,18 @@ def input(args,parser):
         dataset_folder = args.data_dir + '/dummy'
     else:
         print("Warning: Given dataset not known, setting to dummy")
-        dataset_folder = args.data_dir + '/dummy'
+        dataset_folder = args.data_dir + '/citeulike_a_extended'
 
     #A dict that has the paths of all the training/test files for all folds
     all_folds_datasets ={}
 
-    train_folder = os.path.join(dataset_folder,'{0}-{1}'.format('warm' if args.split == 'warm' else 'cold','train'))
+    train_folder = os.path.join(dataset_folder,'{0}-{1}-{2}'.format('warm' if args.split == 'warm' else 'cold','train',args.max_length))
     try:
         os.makedirs(train_folder)
     except OSError as e:
         if e.errno != errno.EEXIST:
             raise
-    test_folder = os.path.join(dataset_folder,'{0}-{1}'.format('warm' if args.split == 'warm' else 'cold','test'))
+    test_folder = os.path.join(dataset_folder,'{0}-{1}-{2}'.format('warm' if args.split == 'warm' else 'cold','test',args.max_length))
     try:
         os.makedirs(test_folder)
     except OSError as e:
