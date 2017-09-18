@@ -226,6 +226,25 @@ class Model():
         self.saver = tf.train.Saver()
 
 
+def attribute_compononet(input,n_layers,):
+    # Implementation of a simple MLP network with one hidden layer.
+    def forwardprop(X, w_1, w_2):
+        """
+        Forward-propagation.
+        IMPORTANT: yhat is not softmax since TensorFlow's softmax_cross_entropy_with_logits() does that internally.
+        """
+        h = tf.nn.tanh(tf.matmul(X, w_1))  # The tanh function
+        yhat = tf.matmul(h, w_2)  # The \varphi function
+        return yhat
+
+    x_size =  tf.shape(input)[0]  # Number of input nodes: 4 features
+    h_size = 256  # Number of hidden nodes
+    y_size = 10
+    # Symbols
+
+    x = tf.placeholder("float", shape=[None, x_size])
+    y = tf.placeholder("float", shape=[None, y_size])
+
 def get_inputs(filename,batch_size,test=False):
 
     # The actual queue of data. The queue contains a vector for

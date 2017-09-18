@@ -12,6 +12,9 @@ from utils import convert_to_tfrecords
 from eval import evaluate
 import math
 
+RANDOM_SEED = 42
+tf.set_random_seed(RANDOM_SEED)
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, default='/home/wanli/data/Extended_ctr',
@@ -66,8 +69,8 @@ def main():
     # partial_run(args)
 
 
-def load_abstracts(parser,dataset_folder):
-    abstracts_word_idx_filename = os.path.join(dataset_folder,'abstracts_word_idx.pkl')
+def load_abstracts(parser,dataset_folder, dataset):
+    abstracts_word_idx_filename = os.path.join(dataset_folder,'{0}-abstracts_word_idx.pkl'.format(dataset))
     if os.path.exists(abstracts_word_idx_filename):
         print('Loading abstracts')
         with open(abstracts_word_idx_filename, 'rb') as f:
@@ -89,24 +92,7 @@ def num_samples(path):
         c += 1
     return c
 
-def load_embeddings(parser):
-    embeddings_tfrecord = os.path.join(parser.dataset_folder,
-                                       '{0}_{1}_embeddings.tfrecord'.format(parser.dataset, parser.embed_dim))
-    if os.path.exists(embeddings_tfrecord):
-        # load embeddings
-        # parser.load_embeddings(filename=embeddings_tfrecord)
-        parser.load_glove_embeddings()
 
-    else:
-        # load glove embeddings
-        parser.load_glove_embeddings()
-        if not parser.all_documents:
-            load_abstracts(parser, parser.dataset_folder)
-        parser.save_embeddings(embeddings_tfrecord)
-        # del parser.embeddings
-        # del parser.embed_vocab
-        # del parser.embed_word_to_id
-        # parser.load_embeddings(embeddings_tfrecord)
 
 def input(args,parser):
     # Read text input
@@ -139,13 +125,16 @@ def input(args,parser):
     except OSError as e:
         if e.errno != errno.EEXIST:
             raise
+
+    parser.load_embeddings()
+
     for fold in range(args.folds):
         train_file = os.path.join(train_folder,args.dataset + '_train_{0}.tfrecords'.format(fold))
         if os.path.exists(train_file):
             print("File already exists {0}".format(train_file))
         else:
             if not parser.train_ratings:
-                load_abstracts(parser, dataset_folder)
+                load_abstracts(parser, dataset_folder,args.dataset)
                 if args.split == 'warm':
                     parser.split_warm_start_item(args.folds)
                 elif args.split == 'cold':
@@ -157,7 +146,7 @@ def input(args,parser):
             print("File already exists {0}".format(test_file))
         else:
             if not parser.test_ratings:
-                load_abstracts(parser, dataset_folder)
+                load_abstracts(parser, dataset_folder, args.dataset)
                 # parser.split_cold_start(5)
                 if args.split == 'warm':
                     parser.split_warm_start_item(args.folds)
@@ -179,7 +168,6 @@ def input(args,parser):
 
         sample_count[fold]=(count_tr,count_test)
 
-    load_embeddings(parser)
 
     print('Finished parsing the input')
     return all_folds_datasets,sample_count
@@ -210,8 +198,6 @@ def train(args):
     last_batch_size = example_count_train % args.batch_size
 
     print('Vocabulary size {0}'.format(parser.words_count))
-    print("Unknown words {0}".format(parser.unkown_words_count))
-    print("Unknown numbers {0}".format(parser.numbers_count))
 
     dir_prefix = '{0}-{1}-{2}-{3}'.format(time.strftime("%d:%m-%H:%M:"),args.dataset,args.split,args.max_length)
     # Checkpoints directory
