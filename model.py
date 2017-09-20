@@ -170,14 +170,14 @@ class Model():
         self.r_hat = tf.add(self.r_hat, self.V_bias_embed,name="R_predicted")
 
         self.MAE = tf.reduce_mean(tf.abs(tf.subtract(self.r, self.r_hat)))
-        self.l2_loss =tf.nn.l2_loss(tf.subtract(self.r, self.r_hat))
+        self.l2_loss =tf.nn.l2_loss(tf.multiply(confidence,tf.subtract(self.r, self.r_hat)))
 
         self.MSE = tf.losses.mean_squared_error(self.r, self.r_hat,weights=confidence)
         self.RMSE = tf.sqrt(self.MSE)
 
         self.reg = tf.add(tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.U)),
                           tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.V)))
-        self.reg_loss = tf.add(self.MSE, self.reg)
+        self.reg_loss = tf.add(self.l2_loss, self.reg)
 
         self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
 

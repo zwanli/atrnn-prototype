@@ -181,10 +181,12 @@ def train(args):
     # read input data
     dataset_path, dataset_count = input(args, parser)
     args.vocab_size = parser.get_vocab_size()
-    parser.get_confidence_matrix(mode='constant',alpha=1 , beta=0.01)
-    parser.get_confidence_matrix(mode='only-positive')
-    confidence_matrix = parser.get_confidence_matrix(mode='user-dependant')
-    parser.get_confidence_matrix()
+    confidence_mode = 'user-dependant'
+    # parser.get_confidence_matrix(mode='constant',alpha=1 , beta=0.01)
+    # parser.get_confidence_matrix(mode='only-positive')
+    confidence_matrix = parser.get_confidence_matrix(mode=confidence_mode)
+    print ('Confidence mode %s ' % confidence_mode)
+    # parser.get_confidence_matrix()
 
     for fold in range(args.folds):
         path_training = dataset_path[fold][0]
