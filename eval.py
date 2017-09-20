@@ -518,6 +518,40 @@ def test_5():
         finally:
             print("Finshed training")
 
+def test_top_recommendations():
+    ratings_matrix=np.random.randint(2,size=(3,6))
+    print(ratings_matrix,end='\n -------------------------------------\n')
+    test_ratings=np.random.randint(2,size=(3,6))
+    test_ratings[:, 5]=0
+    test_ratings[:, 3]=0
+    print(test_ratings,end='\n -------------------------------------\n')
+    U=np.random.randint(100, size=(3,2)) / 1000
+    # print(U,end='\n -------------------------------------\n')
+
+    V=np.random.randint(100, size=(6,2)) / 1000
+    # print(V,end='\n -------------------------------------\n')
+    rnn_output = np.random.randint(100, size=(6,2)) / 1000
+    # print(rnn_output,end='\n -------------------------------------\n')
+    evaluator = Evaluator(ratings_matrix, verbose=True)
+
+    prediction_matrix = np.matmul(U, np.add(V, rnn_output).T)
+    print(prediction_matrix,end='\n -------------------------------------\n')
+
+    # prediction_matrix = np.add(prediction_matrix, np.reshape(U_b, [-1, 1]))
+    # prediction_matrix = np.add(prediction_matrix, V_b)
+    rounded_predictions = utils.rounded_predictions(prediction_matrix)
+    print(rounded_predictions,end='\n -------------------------------------\n')
+
+    evaluator.load_top_recommendations_2(2, prediction_matrix, test_ratings)
+    recall_10 = evaluator.recall_at_x(10, prediction_matrix,ratings_matrix, rounded_predictions)
+    recall_50 = evaluator.recall_at_x(50, prediction_matrix, ratings_matrix, rounded_predictions)
+    recall_100 = evaluator.recall_at_x(100, prediction_matrix, ratings_matrix, rounded_predictions)
+    recall_200 = evaluator.recall_at_x(200, prediction_matrix, ratings_matrix, rounded_predictions)
+    recall = evaluator.calculate_recall(ratings=ratings_matrix, predictions=rounded_predictions)
+    ndcg_at_five = evaluator.calculate_ndcg(5, rounded_predictions)
+    ndcg_at_ten = evaluator.calculate_ndcg(10, rounded_predictions)
+
+    mrr_at_ten = evaluator.calculate_mrr(10, rounded_predictions)
 def main():
     # batch_size = 1
     capacity = 1500
@@ -599,8 +633,8 @@ def main():
     #     finally:
     #         coord.request_stop()
     #         coord.join(threads)
-    test_4()
-
+    # test_4()
+    test_top_recommendations()
 
 if __name__ == '__main__':
     main()

@@ -270,6 +270,7 @@ def train(args):
                 start = time.time()
 
                 for batch in range(nb_batches_train):
+                # for batch in range(2):
                     _, _, U, V, rnn_output, U_b, V_b, bi_out_fw, bi_out_bw, final_state, rmse, mae, summary_str = \
                         sess.run(fetches, feed_dict=feed_dict)
                     # print every 500 iteration

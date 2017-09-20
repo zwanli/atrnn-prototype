@@ -8,13 +8,14 @@ def rounded_predictions(predictions):
     :returns: predictions rounded up matrix
     :rtype: int[][]
     """
+    rounded_matrix = predictions.copy()
     n_users = predictions.shape[0]
     for user in range(n_users):
         avg = sum(predictions[user]) / predictions.shape[1]
         low_values_indices = predictions[user, :] < avg
-        predictions[user, :] = 1
-        predictions[user, low_values_indices] = 0
-    return predictions
+        rounded_matrix[user, :] = 1
+        rounded_matrix[user, low_values_indices] = 0
+    return rounded_matrix
 
 def static_padding(docs,maxlen):
     lengths = []
