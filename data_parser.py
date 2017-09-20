@@ -82,6 +82,7 @@ class DataParser(object):
 
         self.train_ratings = None
         self.test_ratings = None
+        self.confidence_matrix = None
         self.process()
 
 
@@ -150,10 +151,6 @@ class DataParser(object):
                     labels = []
                     # labels=["type", "journal", "booktitle", "series", "publisher", "year", "address"]
                     for j, entry in enumerate(line):
-                        #
-
-                        #     labels_ids.append(j)
-                        # else:
                         if entry != 'abstract':
                             labels.append(entry)
                             labels_ids.append(j)
@@ -336,10 +333,13 @@ class DataParser(object):
                     first_line = False
                     continue
                 doc_id = int(line[0])
+                # for citeulike-a, it starts from 1, we need it to start from 0
+                if self.dataset == 'citeulike-a':
+                    doc_id -=1
                 documents[doc_id]=line[1]
-                if self.dataset == 'citeulike-t':
-                    for word in line[1].split(" "):
-                        self.insert_word(word)
+                # if self.dataset == 'citeulike-t':
+                #     for word in line[1].split(" "):
+                #         self.insert_word(word)
         if self.paper_count is None:
             self.paper_count = len(documents)
 
@@ -660,4 +660,35 @@ class DataParser(object):
             else:
                 yield u_idx[0], v_idx[0], r[0], docs[0]
         # return True
+
+    def get_confidence_matrix(self,mode='default',**kwargs):
+        '''
+
+        :param mode: { 'constant','only-positive', 'user-dependant' }
+        :return:
+        '''
+        self.confidence_matrix = np.ones((self.ratings.shape))
+        if mode == 'constant':
+            if 'alpha' in kwargs and 'beta' in kwargs:
+                self.confidence_matrix[self.ratings == 1] = kwargs['alpha']
+                self.confidence_matrix[self.ratings != 1] = kwargs['beta']
+            else:
+                raise Exception('alpha and beta values are required, where alpha >> beta ')
+        elif mode == 'only-positive':
+            self.confidence_matrix[self.ratings == 1] = 1
+            self.confidence_matrix[self.ratings != 1] = 0
+        elif mode == 'user-dependant':
+            if 'alpha' in kwargs:
+                alpha = kwargs['alpha']
+            else:
+                alpha = 40
+                print('alpha value is not provided, using default value %d ' % alpha)
+            epsilon = 1e-8
+            count_nonzero = np.count_nonzero(self.ratings, axis=1)
+            self.confidence_matrix = self.confidence_matrix .T *( 1 +  alpha * np.log(1 + count_nonzero/(epsilon)))
+        else:
+            print('Using default confidence mode, all negative and positive samples have confidence value 1  ')
+
+        return self.confidence_matrix
+
 

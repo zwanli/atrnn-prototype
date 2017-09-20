@@ -181,6 +181,10 @@ def train(args):
     # read input data
     dataset_path, dataset_count = input(args, parser)
     args.vocab_size = parser.get_vocab_size()
+    parser.get_confidence_matrix(mode='constant',alpha=1 , beta=0.01)
+    parser.get_confidence_matrix(mode='only-positive')
+    confidence_matrix = parser.get_confidence_matrix(mode='user-dependant')
+    parser.get_confidence_matrix()
 
     for fold in range(args.folds):
         path_training = dataset_path[fold][0]
@@ -212,7 +216,7 @@ def train(args):
 
     graph = tf.Graph()
     with graph.as_default():
-        model = Model(args, parser.get_ratings_matrix(), parser.embeddings, path_training, path_test)
+        model = Model(args, parser.get_ratings_matrix(), parser.embeddings, confidence_matrix, path_training, path_test)
         train_writer = tf.summary.FileWriter(args.log_dir + '/{0}-train'.format(dir_prefix))
         valid_writer = tf.summary.FileWriter(args.log_dir + '/{0}-validation'.format(time.strftime(dir_prefix)))
         test_writer = tf.summary.FileWriter(args.log_dir + '/{0}-test'.format(time.strftime(dir_prefix)))

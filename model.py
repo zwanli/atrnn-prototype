@@ -13,7 +13,7 @@ def bias_variable(shape, name):
     return tf.get_variable(name, shape, initializer=b_init)
 
 class Model():
-    def __init__(self, args, M, embed,train_filename,test_filename,enabel_dropout=False, reg_lambda=0.01,name='tr'):
+    def __init__(self, args, M, embed,confidence_matrix,train_filename,test_filename,enabel_dropout=False, reg_lambda=0.01):
         self.args = args
         self.dataset = args.dataset
         if args.model == 'rnn':
@@ -24,6 +24,8 @@ class Model():
             cell_fn = rnn.BasicLSTMCell
         else:
             raise Exception("model type not supported: {}".format(args.model))
+        # n: number of users
+        # m: number of items
         self.n, self.m = M.shape
         self.k = args.embedding_dim
         self.learning_rate = args.learning_rate
@@ -35,12 +37,10 @@ class Model():
         outputs,init_ops = get_input_dataset(train_filename,test_filename, batch_size=self.batch_size)
         self.u_idx,self.v_idx, self.r, self.input_text, self.seq_lengths = outputs
 
-
-        # default_batch_size = tf.constant(args.batch_size,dtype=tf.int32,name='default_batch_size')
-        # self.batch_size = tf.placeholder_with_default(default_batch_size,[], name="batch_size")
-        # self.batch_size = tf.assign(self.batch_size, tf.shape(self.u_idx)[0])
-        # self.batch_size = args.batch_size
-
+        confidence = tf.constant(confidence_matrix, dtype=tf.float32, shape=confidence_matrix.shape,
+                                 name='confidence')
+        u_v_idx = tf.stack([self.u_idx, self.v_idx], axis=1)
+        confidence = tf.gather_nd(confidence, u_v_idx)
 
         # # limit the input_text sequence length [batch_size, max_lenght]
         # # if self.input_text.shape[1] > self.maxlen:
@@ -64,14 +64,11 @@ class Model():
                 vocab_size = args.vocab_size
                 embedding_dim = args.embedding_dim
                 embeddings = np.asarray(embed)
-                # embeddings = tf.get_variable("embeddings", shape=[dim1, dim2], initializer=tf.constant_initializer(np.array(embeddings_matrix))
                 embedding = tf.get_variable(name="embedding", shape=[vocab_size, embedding_dim],
                                              initializer=tf.constant_initializer(embeddings), trainable=False)
-                # embedding = tf.get_variable("embedding", [args.vocab_size, args.rnn_size])
-                # inputs = tf.split(, args.seq_length, 1)
-                # inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
                 inputs = tf.nn.embedding_lookup(embedding, self.input_text)
-                inputs = tf.contrib.layers.dropout(inputs, keep_prob=1.0-self.dropout_embed_layer)
+                if enabel_dropout:
+                    inputs = tf.contrib.layers.dropout(inputs, keep_prob=1.0-self.dropout_embed_layer)
 
             #First layer, bidirectional layer
             '''
@@ -172,12 +169,15 @@ class Model():
         self.r_hat = tf.add(self.r_hat, self.U_bias_embed)
         self.r_hat = tf.add(self.r_hat, self.V_bias_embed,name="R_predicted")
 
-        self.RMSE = tf.sqrt(tf.losses.mean_squared_error(self.r, self.r_hat))
-        self.l2_loss = tf.nn.l2_loss(tf.subtract(self.r, self.r_hat))
         self.MAE = tf.reduce_mean(tf.abs(tf.subtract(self.r, self.r_hat)))
+        self.l2_loss =tf.nn.l2_loss(tf.subtract(self.r, self.r_hat))
+
+        self.MSE = tf.losses.mean_squared_error(self.r, self.r_hat,weights=confidence)
+        self.RMSE = tf.sqrt(self.MSE)
+
         self.reg = tf.add(tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.U)),
                           tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.V)))
-        self.reg_loss = tf.add(self.l2_loss, self.reg)
+        self.reg_loss = tf.add(self.MSE, self.reg)
 
         self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
 
@@ -190,6 +190,7 @@ class Model():
         gru_vars = [var for var in t_vars if 'gru_cell' in var.name]
         self.train_step_rnn = self.optimizer.minimize(self.reg_loss, var_list=[gru_vars])
 
+        tf.summary.scalar("MSE", self.MSE)
         tf.summary.scalar("RMSE", self.RMSE)
         tf.summary.scalar("MAE", self.MAE)
         tf.summary.scalar("L2-Loss", self.l2_loss)

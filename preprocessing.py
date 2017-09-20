@@ -7,6 +7,23 @@ import ntpath
 import sys
 import tensorflow as tf
 import numpy as np
+import datetime
+from prettytable import PrettyTable
+import pandas as pd
+maxInt = sys.maxsize
+decrement = True
+
+while decrement:
+    # decrease the maxInt value by factor 10
+    # as long as the OverflowError occurs.
+
+    decrement = False
+    try:
+        csv.field_size_limit(maxInt)
+    except OverflowError:
+        maxInt = int(maxInt/10)
+        decrement = True
+
 
 vocab = {}
 
@@ -198,11 +215,192 @@ def save_embeddings(filename):
         sys.stdout.flush()
 
 
+def process_features(path,paper_count ):
+    null_token = 'NaN'
+    now = datetime.datetime.now()
+    # id_map = {}
+    # with open(path, "r",encoding='utf-8', errors='ignore') as f:
+    #     reader = csv.reader(f, delimiter='\t')
+    #     first_line = True
+    #     feature_vec = []
+    #     i = 0
+    #     row_length = 0
+    #     labels_ids = []
+    #     for line in reader:
+    #         if first_line:
+    #             # labels = []
+    #             labels = ["citeulike_id","type", "journal","booktitle", "series", "pages", "year", "month", "address"]
+    #             for j, entry in enumerate(line):
+    #                 if entry in labels:
+    #                     labels_ids.append(j)
+    #             row_length = len(labels_ids)
+    #             first_line = False
+    #             i += 1
+    #             continue
+    #         paper_id = line[0]
+    #         # print('Paper id {0}'.format(paper_id))
+    #         if i == 7960:
+    #             s =2
+    #         id_map[int(line[1])] = paper_id
+    #         if int(paper_id) != i:
+    #             for _ in range(int(paper_id) - i):
+    #                 feature_vec.append(['\\N'] * row_length)
+    #                 i += 1
+    #         current_entry = []
+    #
+    #         for k, label_id in enumerate(labels_ids):
+    #             if k == 5 and labels[5] == 'year':
+    #                 current_entry.append(now.year - int(line[label_id]))
+    #             else:
+    #                 current_entry.append(line[label_id])
+    #         feature_vec.append(current_entry)
+    #         i += 1
+
+    clean_file_path = path +'.cleaned'
+    if not os.path.exists(clean_file_path):
+        with open(path, "r", encoding='utf-8', errors='ignore') as infile:
+            reader = csv.reader(infile, delimiter='\t')
+            i = 0
+            first_line = True
+
+            with open(clean_file_path, 'w', newline='') as outfile:
+                writer = csv.writer(outfile, delimiter='\t', quoting=csv.QUOTE_MINIMAL)
+                for line in reader:
+                    if first_line:
+                        row_length = len(line)
+                        first_line = False
+                        writer.writerow(line)
+                        continue
+                    if len(line) > row_length:
+                        line[row_length] = ' '.join(line[row_length -1 :]).replace('\t', ' ')
+                        line = line[:row_length]
+                    paper_id = line[0]
+                    if int(paper_id) != i:
+                        for _ in range(int(paper_id) - i):
+                            empty_row = [str(i)]
+                            empty_row.extend([null_token] * (row_length-1))
+                            # empty_row = '\t'.join(empty_row)
+                            writer.writerow(empty_row)
+                            i += 1
+                    for j, _ in enumerate(line):
+                        if line[j] == '\\N':
+                            line[j] = null_token
+                    writer.writerow(line)
+                    i += 1
+                if i != paper_count:
+                    for _ in range(int(paper_count) - i):
+                        empty_row = [str(i)]
+                        empty_row.extend([null_token] * (row_length - 1))
+                        # empty_row = '\t'.join(empty_row)
+                        writer.writerow(empty_row)
+                        i += 1
+
+
+
+
+    labels = ['doc_id','citeulike_id', 'type', 'journal', 'booktitle', 'series', 'pages', 'year', 'month', 'address']
+    labels_dtype = {'doc_id':np.int32 , 'citeulike_id':np.int32, 'type': str, 'journal': str, 'booktitle': str, 'series': str,
+                      'pages':np.int32, 'month': str, 'address': str}
+    # Month converter
+    months = ['apr','aug', 'dec' ,'feb', 'jan' ,'jul' ,'jun' ,'mar' ,'may', 'nov', 'oct', 'sep']
+    month_convert_func = lambda x: x if x in months else null_token
+
+    number_convert_func = lambda x: x if is_number(x) else -1
+
+
+    convert_func= {'month': month_convert_func, 'pages': number_convert_func, 'doc_id': number_convert_func,
+                   'citeulike_id': number_convert_func}
+    df = pd.read_table(clean_file_path, delimiter='\t', index_col = 'doc_id', usecols=labels,dtype=labels_dtype,
+                         na_values='\\N',na_filter=False,
+                         converters=convert_func)
+
+    # Filter values with frequency less than min_freq
+    def filter(df, tofilter_list, min_freq):
+        for col in tofilter_list:
+            to_keep = df[col].value_counts().reset_index(name="count").query("count > %d" % min_freq)["index"]
+            to_keep = to_keep.values.tolist()
+            df[col] = [x if x in to_keep else 'NaN' for x in df[col]]
+        return df
+
+    tofilter_list = ['journal', 'booktitle', 'address']
+    df = filter(df, tofilter_list, 2)
+
+    # Convert catigorical feature into one-hot encoding
+    def dummmy_df(df, todummy_list):
+        for x in todummy_list:
+            dummies = pd.get_dummies(df[x], prefix=x, dummy_na=True)
+            df = df.drop(x, 1)
+            df = pd.concat([df, dummies], axis=1)
+        return df
+
+    todummy_list = ['type', 'journal', 'booktitle', 'series', 'month', 'address']
+    df = dummmy_df(df, todummy_list)
+
+    x = 1
+    # # features_matrix = np.asarray(feature_vec)
+    # # df = pd.DataFrame(features_matrix,columns=labels)
+    # # filter months
+    # df.month[~df['month'].isin(months)] = null_token
+    # print ('Uninque \'month\' values %d ' % df.month.nunique())
+    #
+    #
+    #
+    return labels, labels
+
+def feature_index(feature, labels):
+    for index, label in enumerate(labels):
+        if label == feature:
+            return index
+    return -1
+
+def get_features_distribution(feature_labels, feature_matrix):
+    # if papers_presentation == 'attributes':
+    #     return feature_matrix
+    if feature_labels is None:
+        raise
+    # A dict of tuples. First element of the tuple is the unique values of a the chosen attribute, the second is
+    # their frequencies
+    uniqe_freq = {}
+    # A dict that has the id of the missing token '\\N' for each attribute
+    missing_value_id = {}
+
+    #Number of papers that have a value for each attribute
+    att_count = {}
+    t = PrettyTable(['feature','# of unique values', '# of papers that have value','# of papers that have missing values'])
+    for feature in feature_labels:
+        uniqe_freq[feature] = np.unique(feature_matrix[:, feature_index(feature, feature_labels)], return_counts=True)
+        missing_value_id[feature] = np.where(uniqe_freq[feature][0] == '\\N')
+
+        att_count[feature] = np.sum(uniqe_freq[feature][1]) \
+                             - (uniqe_freq[feature][1][missing_value_id[feature]]
+                                if len(missing_value_id[feature][0]) != 0 else 0)
+
+        t.add_row([feature,len(uniqe_freq[feature][0]),att_count[feature],(uniqe_freq[feature][1][missing_value_id[feature]]
+                                if missing_value_id[feature][0] is not None else 0)])
+    print (t)
+
+    att_per_paper = {}
+    for paper in feature_matrix:
+        att_per_paper[paper[0]] = len(np.where(paper != '\\N')[0])
+
+    # plt.hist(list(att_per_paper.values()))
+    # plt.title("Attribute per paper")
+    # plt.xlabel("Value")
+    # plt.ylabel("Frequency")
+    #
+    # #fig = plt.gcf()
+    # plt.savefig('{0}attribute-per-paper-histogram_{1}'.format(dataset_folder+'/',dataset))
+    # print('')
+    # for feature in feature_labels:
+    #     print('Number of unique {0} {1}, frequencies {2}'.format(feature,len(uniqe_freq[feature][0]), uniqe_freq[feature][1]))
+    #     print('', end="")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, default='/home/wanli/data/Extended_ctr',
                         help='data directory containing input.txt')
-    parser.add_argument("--dataset", "-d", type=str, default='dummy',
+    parser.add_argument("--dataset", "-d", type=str, default='citeulike-t',
                         help="Which dataset to use", choices=['dummy', 'citeulike-a', 'citeulike-t'])
     parser.add_argument('--embedding_dir', type=str, default='/home/wanli/data/glove.6B/',
                         help='GloVe embedding directory containing embeddings file')
@@ -225,19 +423,26 @@ def main():
         print("File {0} doesn't exist".format(raw_data_path))
         raise
 
-    load_glove_embeddings(args.embedding_dir,args.embedding_dim,keep_embed=True)
+    # load_glove_embeddings(args.embedding_dir,args.embedding_dim,keep_embed=True)
+    #
+    # process_documents(raw_data_path,args.dataset)
+    #
+    # embeddings_path = os.path.join(dataset_folder, '{0}-embeddings-{1}.tfrecord'.format(args.dataset,args.embedding_dim))
+    # save_embeddings(embeddings_path)
+    #
+    # print('Raw data vocabulary size {0}'.format(len(vocab)))
+    # print('Processed data vocabulary size {0}'.format(len(vocab)-len(unknown_words)-numbers_freq))
+    # print('# of unique unknown words {0}, frequency of unknown words {1}'
+    #       .format(len(unknown_words),sum(unknown_words.values())))
+    # print('Numbers frequency {0}'.format(numbers_freq))
 
-    process_documents(raw_data_path,args.dataset)
 
-    embeddings_path = os.path.join(dataset_folder, '{0}-embeddings-{1}.tfrecord'.format(args.dataset,args.embedding_dim))
-    save_embeddings(embeddings_path)
+    paper_count={'dummy': 1929, 'citeulike-a': 16981, 'citeulike-t': 25976 }
+    features_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), dataset_folder, 'paper_info.csv')
 
-    print('Raw data vocabulary size {0}'.format(len(vocab)))
-    print('Processed data vocabulary size {0}'.format(len(vocab)-len(unknown_words)-numbers_freq))
-    print('# of unique unknown words {0}, frequency of unknown words {1}'
-          .format(len(unknown_words),sum(unknown_words.values())))
-    print('Numbers frequency {0}'.format(numbers_freq))
+    labels, raw_features = process_features(features_path, paper_count=paper_count[args.dataset])
+    # get_features_distribution(labels, raw_features)
 
-
+    a =1
 if __name__ == '__main__':
     main()

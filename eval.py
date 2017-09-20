@@ -410,7 +410,7 @@ def test_1():
 
 def test_4():
     is_handle =False
-    batch_size = 128
+    batch_size = 10
     with tf.device("/cpu:0"):
         with tf.variable_scope('input'):
             test_filename = '/home/wanli/data/Extended_ctr/dummy_test_1.tfrecords'
@@ -449,7 +449,18 @@ def test_4():
             next_element = iterator.get_next()
 
             u_idx_t, v_idx_t, r_t, input_t, lengths_t = next_element
-            batch_size = tf.shape(u_idx_t)[0]
+
+            n,m = 50,1929
+            confidence_matrix = np.ones((n,m))
+
+            confidence = tf.get_variable(name="confidence", shape=[n,m],
+                                         initializer=tf.constant_initializer(confidence_matrix), trainable=False)
+            confidence_batch = tf.nn.embedding_lookup(confidence, ids=(u_idx_t, v_idx_t))
+
+            confidence = tf.constant(confidence_matrix, dtype=tf.float32, shape=confidence_matrix.shape,
+                                     name='confidence')
+            u_v_idx = tf.stack([u_idx_t, v_idx_t], axis=1)
+            c_g = tf.gather_nd(confidence,u_v_idx)
     with tf.Session() as sess:
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
@@ -464,9 +475,9 @@ def test_4():
                 print('Training .....................................')
                 sess.run(training_init_op)
                 for _ in range(nb_batches_train):
-                    output,b = sess.run([next_element,batch_size])
-                    sess.run(batch_size)
-                    print(b)
+                    output = sess.run([u_idx_t, v_idx_t])
+                    output = sess.run(c_g)
+                    print(output)
                     # print(np.count_nonzero(np.asarray(output[:,0])))
 
                 # print('Validation .....................................')
@@ -588,7 +599,7 @@ def main():
     #     finally:
     #         coord.request_stop()
     #         coord.join(threads)
-    test_5()
+    test_4()
 
 
 if __name__ == '__main__':
