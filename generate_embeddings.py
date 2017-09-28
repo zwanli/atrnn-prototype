@@ -44,7 +44,7 @@ class MySentences(object):
 
     def __iter__(self):
         for sentence in open(self.filename):
-            yield sentence
+            yield sentence.split()
 
 def generate_sentences(filename,out_path):
     c = 0
@@ -91,16 +91,26 @@ def extract_title_abstract(in_path):
     print('Papers that don\'t have abstract %d' % count_with_abstracts)
 def main():
 
-    acm_file = '/home/zwanli/data/acm.txt'
-    acm_title_abstract_file = '/home/zwanli/data/acm_title_abstract.txt'
+    acm_dir = '/home/wanliz/data/'
+    acm_file = os.path.join(acm_dir,'acm.txt')
+    acm_title_abstract_file = os.path.join(acm_dir,'acm_title_abstract.txt')
     if not os.path.exists(acm_title_abstract_file ):
         extract_title_abstract(acm_file)
-    acm_sentences_file='/home/zwanli/data/acm_sentences.txt'
-    generate_sentences(acm_title_abstract_file,acm_sentences_file)
-    sentences = MySentences(acm_title_abstract_file)
-    # model = gensim.models.Word2Vec(sentences,iter=1,min_count=5,workers=7,sg=0,size=200)
+    acm_sentences_file = os.path.join(acm_dir, 'acm_sentences.txt')
+    # acm_sentences_file = os.path.join(acm_dir, 'acm_sample.txt')
+    if not os.path.exists(acm_sentences_file):
+        generate_sentences(acm_title_abstract_file,acm_sentences_file)
+    sentences = MySentences(acm_sentences_file)
 
-    a =1
+    model = gensim.models.Word2Vec(sentences,iter=5,min_count=5,workers=7,sg=0,size=200)
+    acm_model_file = os.path.join(acm_dir,'model')
+    model.save(acm_model_file)
+    word_vectors = model.wv
+
+    word_vectors.save(os.path.join(acm_dir,'word_embeddings'))
+    word_vectors.save_word2vec_format(os.path.join(acm_dir,'word_embeddings.txt'),binary=False)
+    del model
+
 
 if __name__ == '__main__':
     main()
