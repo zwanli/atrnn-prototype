@@ -215,46 +215,11 @@ def save_embeddings(filename):
         sys.stdout.flush()
 
 
+
+
 def process_features(path,paper_count ):
     null_token = 'NaN'
     now = datetime.datetime.now()
-    # id_map = {}
-    # with open(path, "r",encoding='utf-8', errors='ignore') as f:
-    #     reader = csv.reader(f, delimiter='\t')
-    #     first_line = True
-    #     feature_vec = []
-    #     i = 0
-    #     row_length = 0
-    #     labels_ids = []
-    #     for line in reader:
-    #         if first_line:
-    #             # labels = []
-    #             labels = ["citeulike_id","type", "journal","booktitle", "series", "pages", "year", "month", "address"]
-    #             for j, entry in enumerate(line):
-    #                 if entry in labels:
-    #                     labels_ids.append(j)
-    #             row_length = len(labels_ids)
-    #             first_line = False
-    #             i += 1
-    #             continue
-    #         paper_id = line[0]
-    #         # print('Paper id {0}'.format(paper_id))
-    #         if i == 7960:
-    #             s =2
-    #         id_map[int(line[1])] = paper_id
-    #         if int(paper_id) != i:
-    #             for _ in range(int(paper_id) - i):
-    #                 feature_vec.append(['\\N'] * row_length)
-    #                 i += 1
-    #         current_entry = []
-    #
-    #         for k, label_id in enumerate(labels_ids):
-    #             if k == 5 and labels[5] == 'year':
-    #                 current_entry.append(now.year - int(line[label_id]))
-    #             else:
-    #                 current_entry.append(line[label_id])
-    #         feature_vec.append(current_entry)
-    #         i += 1
 
     clean_file_path = path +'.cleaned'
     if not os.path.exists(clean_file_path):
@@ -272,7 +237,7 @@ def process_features(path,paper_count ):
                         writer.writerow(line)
                         continue
                     if len(line) > row_length:
-                        line[row_length] = ' '.join(line[row_length -1 :]).replace('\t', ' ')
+                        line[row_length] = ' '.join(line[row_length-1:]).replace('\t', ' ')
                         line = line[:row_length]
                     paper_id = line[0]
                     if int(paper_id) != i:
@@ -298,18 +263,29 @@ def process_features(path,paper_count ):
 
 
 
-    labels = ['doc_id','citeulike_id', 'type', 'journal', 'booktitle', 'series', 'pages', 'year', 'month', 'address']
-    labels_dtype = {'doc_id':np.int32 , 'citeulike_id':np.int32, 'type': str, 'journal': str, 'booktitle': str, 'series': str,
-                      'pages':np.int32, 'month': str, 'address': str}
+
     # Month converter
     months = ['apr','aug', 'dec' ,'feb', 'jan' ,'jul' ,'jun' ,'mar' ,'may', 'nov', 'oct', 'sep']
     month_convert_func = lambda x: x if x in months else null_token
 
-    number_convert_func = lambda x: x if is_number(x) else -1
+    def number_convert_func (x):
+        if is_number(x):
+            return x
+        else:
+            print(x)
+            return -1
 
-
-    convert_func= {'month': month_convert_func, 'pages': number_convert_func, 'doc_id': number_convert_func,
+    labels = ['doc_id', 'citeulike_id', 'type', 'pages', 'year']
+    labels_dtype = {'doc_id': np.int32, 'citeulike_id': np.int32, 'type': str, 'pages': np.int32}
+    convert_func= {'pages': number_convert_func, 'doc_id': number_convert_func,
                    'citeulike_id': number_convert_func}
+    # labels = ['doc_id', 'citeulike_id', 'type', 'journal', 'booktitle', 'series', 'pages', 'year', 'month', 'address']
+    # labels_dtype = {'doc_id': np.int32, 'citeulike_id': np.int32, 'type': str, 'journal': str, 'booktitle': str,
+    #                 'series': str,
+    #                 'pages': np.int32, 'month': str, 'address': str}
+    # convert_func = {'month': month_convert_func, 'pages': number_convert_func, 'doc_id': number_convert_func,
+    #                 'citeulike_id': number_convert_func}
+
     df = pd.read_table(clean_file_path, delimiter='\t', index_col = 'doc_id', usecols=labels,dtype=labels_dtype,
                          na_values='\\N',na_filter=False,
                          converters=convert_func)
@@ -322,7 +298,7 @@ def process_features(path,paper_count ):
             df[col] = [x if x in to_keep else 'NaN' for x in df[col]]
         return df
 
-    tofilter_list = ['journal', 'booktitle', 'address']
+    tofilter_list = []
     df = filter(df, tofilter_list, 2)
 
     # Convert catigorical feature into one-hot encoding
@@ -333,7 +309,7 @@ def process_features(path,paper_count ):
             df = pd.concat([df, dummies], axis=1)
         return df
 
-    todummy_list = ['type', 'journal', 'booktitle', 'series', 'month', 'address']
+    todummy_list = ['type']
     df = dummmy_df(df, todummy_list)
 
     x = 1
@@ -396,11 +372,12 @@ def get_features_distribution(feature_labels, feature_matrix):
     #     print('', end="")
 
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, default='/home/wanli/data/Extended_ctr',
                         help='data directory containing input.txt')
-    parser.add_argument("--dataset", "-d", type=str, default='citeulike-t',
+    parser.add_argument("--dataset", "-d", type=str, default='citeulike-a',
                         help="Which dataset to use", choices=['dummy', 'citeulike-a', 'citeulike-t'])
     parser.add_argument('--embedding_dir', type=str, default='/home/wanli/data/glove.6B/',
                         help='GloVe embedding directory containing embeddings file')
@@ -426,6 +403,7 @@ def main():
     # load_glove_embeddings(args.embedding_dir,args.embedding_dim,keep_embed=True)
     #
     # process_documents(raw_data_path,args.dataset)
+    #
     #
     # embeddings_path = os.path.join(dataset_folder, '{0}-embeddings-{1}.tfrecord'.format(args.dataset,args.embedding_dim))
     # save_embeddings(embeddings_path)

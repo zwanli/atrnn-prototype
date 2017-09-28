@@ -188,6 +188,9 @@ def train(args):
     print ('Confidence mode %s ' % confidence_mode)
     # parser.get_confidence_matrix()
 
+    with open(os.path.join(args.save_dir, 'config.pkl'), 'wb') as f:
+        pickle.dump(args, f, pickle.HIGHEST_PROTOCOL)
+
     for fold in range(args.folds):
         path_training = dataset_path[fold][0]
         path_test = dataset_path[fold][1]
