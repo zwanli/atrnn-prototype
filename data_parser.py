@@ -240,7 +240,7 @@ class DataParser(object):
         return word, glove_id, embed
 
     def load_embeddings(self):
-        filename = os.path.join(self.dataset_folder,'{0}-embeddings-{1}.tfrecord'.format(self.dataset, self.embed_dim))
+        filename = os.path.join(self.dataset_folder,'{0}-embeddings-{1}-w2v.tfrecord'.format(self.dataset, self.embed_dim))
         print('Loading embeddings {0} ...'.format(filename))
         unsorted_embeddings={}
         word_id =0
@@ -297,7 +297,7 @@ class DataParser(object):
         elif is_number(word):
             self.numbers_count += 1
             # print('is_number {0}'.format(word))
-            return self.embed_word_to_id['<NUM>']
+            return self.embed_word_to_id['<num>']
         else:
             # print('Unknow word: {0}'.format(word))
             self.unkown_words[word] = 1

@@ -19,7 +19,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, default='/home/wanli/data/Extended_ctr',
                         help='data directory containing input.txt')
-    parser.add_argument("--dataset", "-d", type=str, default='dummy',
+    parser.add_argument("--dataset", "-d", type=str, default='citeulike-a',
                         help="Which dataset to use", choices=['dummy', 'citeulike-a', 'citeulike-t'])
     parser.add_argument('--embedding_dir', type=str, default='/home/wanli/data/glove.6B/',
                         help='GloVe embedding directory containing embeddings file')

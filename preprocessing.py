@@ -42,15 +42,22 @@ numbers_freq = 0
 
 
 
-def load_glove_embeddings(embed_dir, embed_dim, keep_embed = False):
+def load_embeddings(embed_dir, embed_dim, keep_embed = False, w2v =True):
     # Load pre-trained embeddings
-    f = open(os.path.join(embed_dir, 'glove.6B.{0}d.txt'.format(embed_dim)))
-    print("Loading GloVe embedding data  " + str(f.name))
+    if w2v:
+        f = open(os.path.join(embed_dir, 'w2v_{0}.txt'.format(embed_dim)))
+    else:
+        f = open(os.path.join(embed_dir, 'glove.6B.{0}d.txt'.format(embed_dim)))
+    print("Loading {0} embedding data {1}  ".format(('w2v' if w2v else 'GloVe'),str(f.name)))
     #Count the number of the occurance of numbers in glove embeddings
     num_freq = 0
     global avg_num_embedd
     avg_num_embedd = np.zeros(200)
+    first_line = True
     for line in f:
+        if first_line:
+            first_line = False
+            continue
         row = line.split()
         word = row[0]
         # Add the word to the vocabulary list of the pre-trained word embeddings dataset
@@ -70,7 +77,6 @@ def load_glove_embeddings(embed_dir, embed_dim, keep_embed = False):
     glove_word_to_id = {word: i for i, word in enumerate(glove_vocab)}
 
     return glove_vocab, glove_word_to_id, glove_embeddings
-
 
 def add_unkonwn_word(word):
     if word in unknown_words:
@@ -93,6 +99,7 @@ def in_glove_vocab(word):
 
 
 def add_word(word, vocab):
+    word = word.lower()
     if word in vocab:
        vocab[word] += 1
     else:
@@ -102,21 +109,21 @@ def add_word(word, vocab):
 def is_number(s):
     try:
         float(s)
-        global  numbers_freq
-        numbers_freq += 1
         return True
     except ValueError:
         return False
 
 def process_word(word):
     '''
-    replace unknown words with 'unk' token, replace numbers with '<NUM>'. Otherwise, return word
+    replace unknown words with 'unk' token, replace numbers with '<num>'. Otherwise, return word
     :param word:
     :return:
     '''
     if is_number(word):
-        add_word('<NUM>',filtered_vocabulary)
-        return '<NUM>'
+        add_word('<num>',filtered_vocabulary)
+        global numbers_freq
+        numbers_freq += 1
+        return '<num>'
     if in_glove_vocab(word):
         add_word(word, filtered_vocabulary)
         return word
@@ -159,18 +166,24 @@ def process_documents(path, dataset):
                 paper = line[1]+' '+line[4]
             sentences = sent_tokenize(paper)
             sentences = [word_tokenize(x) for x in sentences]
+            #add the word to the raw data vocabulary
             documents[doc_id] = [add_word(word,vocab) for sentence in sentences for word in sentence]
 
     # process raw data,
     # - remove less frequent words
-    # - replace unknown words with 'unk' token, replace numbers with '<NUM>'
+    # - replace unknown words with 'unk' token, replace numbers with '<num>'
     print('Processing documents ...')
+    c = 0
     filtered_documents={}
     for doc_id in documents:
         filtered_documents[doc_id] =[]
         for word in documents[doc_id]:
             if not is_less_frequent(word, MIN_WORD_FREQUENCY):
+                # process the word, and add it to the filtered data vocabulary
                 filtered_documents[doc_id].append(process_word(word))
+            else:
+                c +=1
+    print('Words with frequency less than {0}: {1}'.format(MIN_WORD_FREQUENCY, c))
 
     # write the processd documents
     parent_dir, filename = ntpath.split(path)
@@ -197,7 +210,7 @@ def save_embeddings(filename):
         writer = tf.python_io.TFRecordWriter(filename)
         for word in filtered_vocabulary:
             # Create a feature
-            if word == '<NUM>':
+            if word == '<num>':
                 word_id = -1
                 word_embed = avg_num_embedd
             else:
@@ -379,7 +392,7 @@ def main():
                         help='data directory containing input.txt')
     parser.add_argument("--dataset", "-d", type=str, default='citeulike-a',
                         help="Which dataset to use", choices=['dummy', 'citeulike-a', 'citeulike-t'])
-    parser.add_argument('--embedding_dir', type=str, default='/home/wanli/data/glove.6B/',
+    parser.add_argument('--embedding_dir', type=str, default='/home/wanli/data/cbow_w2v',
                         help='GloVe embedding directory containing embeddings file')
     parser.add_argument('--embedding_dim', type=int, default=200,
                         help='dimension of the embeddings', choices=['50', '100', '200', '300'])
@@ -400,26 +413,31 @@ def main():
         print("File {0} doesn't exist".format(raw_data_path))
         raise
 
-    # load_glove_embeddings(args.embedding_dir,args.embedding_dim,keep_embed=True)
-    #
-    # process_documents(raw_data_path,args.dataset)
-    #
-    #
-    # embeddings_path = os.path.join(dataset_folder, '{0}-embeddings-{1}.tfrecord'.format(args.dataset,args.embedding_dim))
-    # save_embeddings(embeddings_path)
-    #
-    # print('Raw data vocabulary size {0}'.format(len(vocab)))
-    # print('Processed data vocabulary size {0}'.format(len(vocab)-len(unknown_words)-numbers_freq))
-    # print('# of unique unknown words {0}, frequency of unknown words {1}'
-    #       .format(len(unknown_words),sum(unknown_words.values())))
-    # print('Numbers frequency {0}'.format(numbers_freq))
+    use_w2v = False
+    _, embed_dir= ntpath.split(args.embedding_dir)
+    if (embed_dir == 'cbow_w2v'):
+        use_w2v = True
+    load_embeddings(args.embedding_dir,args.embedding_dim,keep_embed=True,w2v=use_w2v)
 
+    process_documents(raw_data_path,args.dataset)
 
-    paper_count={'dummy': 1929, 'citeulike-a': 16981, 'citeulike-t': 25976 }
-    features_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), dataset_folder, 'paper_info.csv')
+    embeddings_path = os.path.join(dataset_folder, '{0}-embeddings-{1}-{2}.tfrecord'.
+                                   format(args.dataset,args.embedding_dim,'w2v' if use_w2v else 'glove'))
+    save_embeddings(embeddings_path)
 
-    labels, raw_features = process_features(features_path, paper_count=paper_count[args.dataset])
-    # get_features_distribution(labels, raw_features)
+    print('Raw data vocabulary size {0}, frequency {1}'.format(len(vocab), sum(vocab.values())))
+    print('Processed data vocabulary size {0}, frequency {1}'.format(len(filtered_vocabulary),
+                                                                     sum(filtered_vocabulary.values())))
+    print('# of unique unknown words {0}, frequency of unknown words {1}'
+          .format(len(unknown_words),sum(unknown_words.values())))
+    print('Numbers frequency {0}'.format(numbers_freq))
+
+    #
+    # paper_count={'dummy': 1929, 'citeulike-a': 16981, 'citeulike-t': 25976 }
+    # features_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), dataset_folder, 'paper_info.csv')
+    #
+    # labels, raw_features = process_features(features_path, paper_count=paper_count[args.dataset])
+    # # get_features_distribution(labels, raw_features)
 
     a =1
 if __name__ == '__main__':
