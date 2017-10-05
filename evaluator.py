@@ -11,6 +11,7 @@ class Evaluator(object):
     """
     A class for computing evaluation metrics and splitting the input data.
     """
+
     def __init__(self, ratings, abstracts_preprocessor=None, random_seed=False,
                  verbose=False):
         """
@@ -93,7 +94,7 @@ class Evaluator(object):
                                                size=int(self.test_percentage * len(non_zeros)))
             train[user, test_ratings] = 0.
             test[user, test_ratings] = self.ratings[user, test_ratings]
-        assert(numpy.all((train * test) == 0))
+        assert (numpy.all((train * test) == 0))
         self.test_indices = test
         return train, test
 
@@ -114,7 +115,7 @@ class Evaluator(object):
         for index in test_ratings:
             train[:, index] = 0
             test[:, index] = self.ratings[:, index]
-        assert(numpy.all((train * test) == 0))
+        assert (numpy.all((train * test) == 0))
         return train, test
 
     def get_fold(self, fold_num, fold_test_indices):
@@ -184,7 +185,7 @@ class Evaluator(object):
                 num_to_add.append(int((self.ratings.shape[1] / self.k_folds) - len(test_ratings[index])))
                 if index > 0 and num_to_add[index] != num_to_add[index - 1]:
                     addition = non_rated_indices[index * (num_to_add[index - 1]):
-                                                         (num_to_add[index - 1] * index) + num_to_add[index]]
+                    (num_to_add[index - 1] * index) + num_to_add[index]]
                 else:
                     addition = non_rated_indices[index * (num_to_add[index]):num_to_add[index] * (index + 1)]
 
@@ -252,6 +253,25 @@ class Evaluator(object):
             self.recommendation_indices[user] = list(reversed(top_recommendations.get_indices()))
             top_recommendations = None
 
+        self.recs_loaded = True
+        return self.recommendation_indices
+
+    def new_load_top_recommendations(self, n_recommendations, predictions, test_data):
+        """
+        This method loads the top n recommendations into a local variable.
+
+        :param int n_recommendations: number of recommendations to be generated.
+        :param int[][] predictions: predictions matrix (only 0s or 1s)
+        :returns: A matrix of top recommendations for each user.
+        :rtype: int[][]
+        """
+        self.test_indices = test_data
+        for user in range(self.ratings.shape[0]):
+            top_recommendations = TopRecommendations(n_recommendations)
+            for index in range(self.ratings.shape[1]):
+                top_recommendations.insert(index, predictions[user][index])
+            self.recommendation_indices[user] = list(reversed(top_recommendations.get_indices()))
+            top_recommendations = None
         self.recs_loaded = True
         return self.recommendation_indices
 
@@ -333,7 +353,12 @@ class Evaluator(object):
                 if pos_index + 1 == n_recommendations:
                     break
             if idcg != 0:
+                # print('ndcg for user {0}: {1}'.format(user, dcg / idcg))
                 ndcgs.append(dcg / idcg)
+            # else:
+            #     ndcgs.append(0.0)
+
+        print('sum {0}, len {1}'.format(sum(ndcgs), len(ndcgs)))
         return numpy.mean(ndcgs, dtype=numpy.float16)
 
     def calculate_mrr(self, n_recommendations, rounded_predictions):

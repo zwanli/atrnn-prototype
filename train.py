@@ -306,7 +306,7 @@ def train(args):
                     prediction_matrix = np.add(prediction_matrix, np.reshape(U_b, [-1, 1]))
                     prediction_matrix = np.add(prediction_matrix, V_b)
                     rounded_predictions = utils.rounded_predictions(prediction_matrix)
-                    evaluator.load_top_recommendations_2(200, prediction_matrix, test_ratings)
+                    evaluator.new_load_top_recommendations(200, prediction_matrix, test_ratings)
                     recall_10 = evaluator.recall_at_x(10, prediction_matrix, parser.ratings, rounded_predictions)
                     recall_50 = evaluator.recall_at_x(50, prediction_matrix, parser.ratings, rounded_predictions)
                     recall_100 = evaluator.recall_at_x(100, prediction_matrix, parser.ratings, rounded_predictions)
