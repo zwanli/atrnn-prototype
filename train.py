@@ -9,7 +9,7 @@ from data_parser import DataParser
 import utils
 from model import Model
 from utils import convert_to_tfrecords
-from eval import evaluate
+from tensorflow.python import debug as tf_debug
 import math
 
 RANDOM_SEED = 42
@@ -237,6 +237,8 @@ def train(args):
 
     n_steps = args.num_epochs
     with tf.Session(config=config, graph=graph) as sess:
+        sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+        sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
         print('Saving graph to disk...')
         # train_writer.add_graph(sess.graph)
         # valid_writer.add_graph(sess.graph)
