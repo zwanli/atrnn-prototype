@@ -235,7 +235,7 @@ def process_features(path,paper_count ):
     now = datetime.datetime.now()
 
     clean_file_path = path +'.cleaned'
-    if not os.path.exists(clean_file_path):
+    if os.path.exists(clean_file_path):
         with open(path, "r", encoding='utf-8', errors='ignore') as infile:
             reader = csv.reader(infile, delimiter='\t')
             i = 0
@@ -325,7 +325,6 @@ def process_features(path,paper_count ):
     todummy_list = ['type']
     df = dummmy_df(df, todummy_list)
 
-    x = 1
     # # features_matrix = np.asarray(feature_vec)
     # # df = pd.DataFrame(features_matrix,columns=labels)
     # # filter months
@@ -390,7 +389,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, default='/home/wanli/data/Extended_ctr',
                         help='data directory containing input.txt')
-    parser.add_argument("--dataset", "-d", type=str, default='citeulike-a',
+    parser.add_argument("--dataset", "-d", type=str, default='dummy',
                         help="Which dataset to use", choices=['dummy', 'citeulike-a', 'citeulike-t'])
     parser.add_argument('--embedding_dir', type=str, default='/home/wanli/data/cbow_w2v',
                         help='GloVe embedding directory containing embeddings file')
@@ -432,12 +431,12 @@ def main():
           .format(len(unknown_words),sum(unknown_words.values())))
     print('Numbers frequency {0}'.format(numbers_freq))
 
-    #
-    # paper_count={'dummy': 1929, 'citeulike-a': 16981, 'citeulike-t': 25976 }
+    # #
+    # paper_count={'dummy': 1929, 'citeulike-a': 16980, 'citeulike-t': 25976 }
     # features_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), dataset_folder, 'paper_info.csv')
     #
     # labels, raw_features = process_features(features_path, paper_count=paper_count[args.dataset])
-    # # get_features_distribution(labels, raw_features)
+    # # # get_features_distribution(labels, raw_features)
 
     a =1
 if __name__ == '__main__':

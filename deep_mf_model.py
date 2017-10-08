@@ -3,6 +3,7 @@ from tensorflow.contrib import rnn
 import numpy as np
 import os
 from utils import read_and_decode
+from model import get_input_dataset
 
 def weight_variable(shape, name):
     initial = tf.truncated_normal(shape, stddev=0.001)
@@ -12,7 +13,7 @@ def bias_variable(shape, name):
     b_init = tf.constant_initializer(0.)
     return tf.get_variable(name, shape, initializer=b_init)
 
-class Model():
+class DMF_Model():
     def __init__(self, args, M, embed,confidence_matrix,train_filename,test_filename,enabel_dropout=False, reg_lambda=0.01):
         self.args = args
         self.dataset = args.dataset
@@ -141,11 +142,14 @@ class Model():
         ## Attributes component
 
 
-        # U matrix [num_users, embeddings_dim]
-        self.U = weight_variable([self.n, self.k], 'U')
-        # V matrix [num_items, embeddings_dim]
-        self.V = weight_variable([self.m, self.k], 'V')
+        ## Deep matrix factorization model
+        self.Y_matrix = tf.constant(M,dtype=tf.float32,shape=M.shape,name="Y_actual")
 
+        # Network Parameters
+        n_hidden_1 = 1024  # 1st layer number of neurons
+        n_hidden_2 = 512  # 2nd layer number of neurons
+        n_hidden_3 = 265
+        n_output = 200  # MNIST total classes (0-9 digits)
 
 
         # U, V biases
@@ -153,52 +157,134 @@ class Model():
         self.V_bias = weight_variable([self.m], 'V_bias')
 
         # Users' raws form U matrix considered for the current batch [batch_size, embeddings_dim]
-        self.U_embed = tf.nn.embedding_lookup(self.U, self.u_idx)
+        self.U_embed = tf.nn.embedding_lookup(tf.transpose(self.Y_matrix), self.u_idx)
         # Items' raws form V matrix considered for the current batch [batch_size, embeddings_dim]
-        self.V_embed = tf.nn.embedding_lookup(self.V, self.v_idx)
+        self.V_embed = tf.nn.embedding_lookup(self.Y_matrix, self.v_idx)
 
         self.U_bias_embed = tf.nn.embedding_lookup(self.U_bias, self.u_idx)
         self.V_bias_embed = tf.nn.embedding_lookup(self.V_bias, self.v_idx)
 
+        with tf.name_scope('hidden_layer%d' % (args.mf_num_layers)):
 
-        self.F = tf.add(self.V_embed,self.G)
+            # First layer, User side
+            with tf.name_scope('U_layer1'):
+                w_U_1 = weight_variable([self.n,n_hidden_1], 'W_U_1')
+                # b_U_1 = bias_variable(self.n, 'B_U_1')
+                h_U_1 = tf.nn.relu(tf.matmul(self.U_embed, w_U_1))
 
-        self.r_hat = tf.reduce_mean(tf.multiply(self.U_embed, self.F), reduction_indices=1)
 
-        # self.r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.V_embed), reduction_indices=1)
-        self.r_hat = tf.add(self.r_hat, self.U_bias_embed)
-        self.r_hat = tf.add(self.r_hat, self.V_bias_embed,name="R_predicted")
+            # First layer, item side
+            with tf.name_scope('V_layer1'):
+                w_V_1 = weight_variable([self.m,n_hidden_1], 'W_V_1')
+                # b_V_1 = bias_variable(self.n, 'B_V_1')
+                h_V_1 = tf.nn.relu(tf.matmul(self.V_embed, w_V_1))
 
-        self.MAE = tf.reduce_mean(tf.abs(tf.subtract(self.r, self.r_hat)))
-        self.l2_loss =tf.nn.l2_loss(tf.multiply(confidence,tf.subtract(self.r, self.r_hat)))
+            #Hidden layers
+            for n in range(2,args.mf_num_layers +1 ):
+                if n == 2:
+                    # Hidden layer, User side
+                    with tf.name_scope('U_layer%d' % n):
+                        w_U_h = weight_variable([n_hidden_1,n_hidden_2], 'W_U_%d' % n)
+                        b_U_h = bias_variable(n_hidden_2, 'B_U_%d' % n)
+                        h_U_h = tf.nn.relu(tf.add(tf.matmul(h_U_1,w_U_h),b_U_h),'h_U_%d' % n)
+                    # Hidden layer, item side
+                    with tf.name_scope('V_layer%d' % n):
+                        w_V_h = weight_variable([n_hidden_1,n_hidden_2], 'W_V_%d' % n)
+                        b_V_h = bias_variable(n_hidden_2, 'B_V_%d' % n)
+                        h_V_h = tf.nn.relu(tf.add(tf.matmul(h_V_1,w_V_h),b_V_h),'h_V_%d' % n)
+                else:
+                    # Hidden layer, User side
+                    with tf.name_scope('U_layer%d' % n):
+                        w_U_h = weight_variable([n_hidden_2,n_hidden_3], 'W_U_%d' % n)
+                        b_U_h = bias_variable(n_hidden_3, 'B_U_%d' % n)
+                        h_U_h = tf.nn.relu(tf.add(tf.matmul(h_U_h,w_U_h),b_U_h), 'h_U_%d' % n)
+                    # Hidden layer, item side
+                    with tf.name_scope('V_layer%d' % n):
+                        w_V_h = weight_variable([n_hidden_2,n_hidden_3], 'W_V_%d' % n)
+                        b_V_h = bias_variable(n_hidden_3, 'B_V_%d' % n)
+                        h_V_h = tf.nn.relu(tf.add(tf.matmul(h_V_h,w_V_h),b_V_h), 'h_V_%d' % n)
 
-        self.MSE = tf.losses.mean_squared_error(self.r, self.r_hat,weights=confidence)
-        self.RMSE = tf.sqrt(self.MSE)
+        with tf.name_scope('output_layer'):
+            with tf.name_scope('U_out_layer'):
+                if args.mf_num_layers > 2:
+                    n_hidden_prev = n_hidden_3
+                else:
+                    n_hidden_prev = n_hidden_2
+                w_U_out = weight_variable([n_hidden_prev, n_output], 'W_U_out')
+                b_U_out = bias_variable(n_output, 'B_U_out')
+                p = tf.nn.relu(tf.add(tf.matmul(h_U_h, w_U_out), b_U_out), 'item_embedding')
+            # Hidden layer, item side
+            with tf.name_scope('V_out_layer'):
+                w_V_out = weight_variable([n_hidden_prev, n_output], 'W_V_out')
+                b_V_out = bias_variable(n_output, 'B_V_out')
+                q = tf.nn.relu(tf.add(tf.matmul(h_V_h, w_V_out), b_V_out), 'user_embedding')
 
-        self.reg = tf.add(tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.U)),
-                          tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.V)))
-        self.reg_loss = tf.add(self.l2_loss, self.reg)
 
-        self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
+        #model output
+        #combine the rnn output with the item embedding
+        self.F = tf.add(q, self.G)
 
-        self.joint_train_step = self.optimizer.minimize(self.reg_loss)
+        #cos_similarity
+        logits = tf.subtract(1.0, tf.losses.cosine_distance(tf.nn.l2_normalize(p,0),tf.nn.l2_normalize(self.F,0)
+                                                            ,reduction=tf.losses.Reduction.NONE,dim=1))
 
-        self.train_step_u = self.optimizer.minimize(self.reg_loss, var_list=[self.U, self.U_bias])
-        self.train_step_v = self.optimizer.minimize(self.reg_loss, var_list=[self.V, self.V_bias])
+        # Define loss and optimizer
+        loss_op = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
+            logits=logits, labels=tf.cast(self.r,dtype=tf.int32)))
+        loss_op = tf.losses.sparse_softmax_cross_entropy(logits=logits, labels=tf.cast(self.r,dtype=tf.int32))
 
-        t_vars=tf.trainable_variables()
-        gru_vars = [var for var in t_vars if 'gru_cell' in var.name]
-        self.train_step_rnn = self.optimizer.minimize(self.reg_loss, var_list=[gru_vars])
+        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
+        self.train_op = optimizer.minimize(loss_op)
 
-        tf.summary.scalar("MSE", self.MSE)
-        tf.summary.scalar("RMSE", self.RMSE)
-        tf.summary.scalar("MAE", self.MAE)
-        tf.summary.scalar("L2-Loss", self.l2_loss)
-        tf.summary.scalar("Reg-Loss", self.reg_loss)
 
+        #
+        #
+        # self.F = tf.add(self.V_embed,self.G)
+        #
+        # self.r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.F), reduction_indices=1)
+        #
+        # # self.r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.V_embed), reduction_indices=1)
+        # self.r_hat = tf.add(self.r_hat, self.U_bias_embed)
+        # self.r_hat = tf.add(self.r_hat, self.V_bias_embed,name="R_predicted")
+        #
+        # self.MAE = tf.reduce_mean(tf.abs(tf.subtract(self.r, self.r_hat)))
+        # self.l2_loss =tf.nn.l2_loss(tf.multiply(confidence,tf.subtract(self.r, self.r_hat)))
+        #
+        # self.MSE = tf.losses.mean_squared_error(self.r, self.r_hat,weights=confidence)
+        # self.RMSE = tf.sqrt(self.MSE)
+        #
+        # self.reg = tf.add(tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.U)),
+        #                   tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.V)))
+        # self.reg_loss = tf.add(self.l2_loss, self.reg)
+        #
+        # self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
+        #
+        # self.joint_train_step = self.optimizer.minimize(self.reg_loss)
+        #
+        # self.train_step_u = self.optimizer.minimize(self.reg_loss, var_list=[self.U, self.U_bias])
+        # self.train_step_v = self.optimizer.minimize(self.reg_loss, var_list=[self.V, self.V_bias])
+        #
+        # t_vars=tf.trainable_variables()
+        # gru_vars = [var for var in t_vars if 'gru_cell' in var.name]
+        # self.train_step_rnn = self.optimizer.minimize(self.reg_loss, var_list=[gru_vars])
+        #
+        # tf.summary.scalar("MSE", self.MSE)
+        # tf.summary.scalar("RMSE", self.RMSE)
+        # tf.summary.scalar("MAE", self.MAE)
+        # tf.summary.scalar("L2-Loss", self.l2_loss)
+        # tf.summary.scalar("Reg-Loss", self.reg_loss)
+        #
+
+        tf.summary.scalar('Cross-entropy',loss_op)
         # add op for merging summary
         self.summary_op = tf.summary.merge_all()
 
+
+
+        # add Saver ops
+        self.saver = tf.train.Saver()
+
+    def metrics(self):
         self.recall = tf.Variable(0, trainable=False,dtype=tf.float32)
         self.recall_10 = tf.Variable(0, trainable=False, dtype=tf.float32)
         self.recall_50 = tf.Variable (0,trainable=False, dtype=tf.float32)
@@ -222,150 +308,3 @@ class Model():
                                              ndcg_5_sum, ndcg_10_sum,mrr_10_sum))
 
 
-
-        # add Saver ops
-        self.saver = tf.train.Saver()
-
-
-def attribute_compononet(input,n_layers,):
-    # Implementation of a simple MLP network with one hidden layer.
-    def forwardprop(X, w_1, w_2):
-        """
-        Forward-propagation.
-        IMPORTANT: yhat is not softmax since TensorFlow's softmax_cross_entropy_with_logits() does that internally.
-        """
-        h = tf.nn.tanh(tf.matmul(X, w_1))  # The tanh function
-        yhat = tf.matmul(h, w_2)  # The \varphi function
-        return yhat
-
-    x_size =  tf.shape(input)[0]  # Number of input nodes: 4 features
-    h_size = 256  # Number of hidden nodes
-    y_size = 10
-    # Symbols
-
-    x = tf.placeholder("float", shape=[None, x_size])
-    y = tf.placeholder("float", shape=[None, y_size])
-
-def get_inputs(filename,batch_size,test=False):
-
-    # The actual queue of data. The queue contains a vector for
-    if (not os.path.exists(filename)):
-        print('Dataset file does not exist {0}'.format(filename))
-        raise SystemExit
-    capacity = 20 * batch_size
-
-    # Create a list of filenames and pass it to a queue
-    filename_queue = tf.train.string_input_producer([filename], num_epochs=None)
-
-    # Output order: u, v, r, doc, length
-    train_features = read_and_decode(filename_queue=filename_queue)
-    input_queue = tf.FIFOQueue(
-        capacity=capacity, dtypes=(tf.int32, tf.int32, tf.float32, tf.int32, tf.int32),
-        shared_name='shared_name{0}'.format('_train'))
-    # The symbolic operation to add data to the queue
-    input_enqueue_op = input_queue.enqueue(train_features)
-    numberOfThreads = 1
-    # now setup a queue runner to handle enqueue_op outside of the main thread asynchronously
-    qr = tf.train.QueueRunner(input_queue, [input_enqueue_op] * numberOfThreads)
-    # now we need to add qr to the TensorFlow queue runners collection
-    tf.train.add_queue_runner(qr)
-    # outputs(u, v, r, abstract, abs_length)
-    outputs = input_queue.dequeue()
-
-    u_idx_t = tf.reshape(outputs[0], [1])
-    v_idx_t = tf.reshape(outputs[1], [1])
-    r_t = tf.reshape(outputs[2], [1])
-    input_t = tf.reshape(outputs[3], [1, -1])
-    lengths_t = tf.reshape(outputs[4], [1])
-
-    bucket_boundaries = [x for x in range(50, 500, 50)]
-    seq_len, outputs_b = tf.contrib.training.bucket_by_sequence_length(
-        lengths_t, tensors=[u_idx_t, v_idx_t, r_t, input_t, lengths_t],
-        allow_smaller_final_batch=True, \
-        batch_size=batch_size, bucket_boundaries=bucket_boundaries, \
-        capacity=capacity, dynamic_pad=True)
-    u_idx = tf.squeeze(outputs_b[0], [1], name="U_matrix")
-    v_idx = tf.squeeze(outputs_b[1], [1], name="V_matrix")
-    r = tf.squeeze(outputs_b[2], [1], name='R_target')
-    input_text = tf.squeeze(outputs_b[3], [1], name="Input_text")
-    seq_lengths = tf.squeeze(outputs_b[4], [1], name="seq_lengths")
-    return u_idx,v_idx,r,input_text,seq_lengths
-
-
-def _parse_function(sequence_example_proto):
-        context_feature = {'u': tf.FixedLenFeature([], tf.int64),
-                           'v': tf.FixedLenFeature([], tf.int64),
-                           'r': tf.FixedLenFeature([], tf.int64),
-                           'abs_length': tf.FixedLenFeature([], tf.int64)}
-
-        sequence_feature = {'abstract': tf.FixedLenSequenceFeature([], tf.int64)}
-
-        # Decode the record read by the reader
-        context_feature, sequence_feature = tf.parse_single_sequence_example(sequence_example_proto,
-                                                                             context_features=context_feature,
-                                                                             sequence_features=sequence_feature)
-        u = tf.cast(context_feature['u'], tf.int32)
-        v = tf.cast(context_feature['v'], tf.int32)
-        r = tf.cast(context_feature['r'], tf.float32)
-        abs_length = tf.cast(context_feature['abs_length'], tf.int32)
-        abstract = tf.cast(sequence_feature['abstract'], tf.int32)
-        return u, v, r, abstract, abs_length
-
-def get_input_test(filenames,batch_size):
-    # Creates a dataset that reads all of the examples from filenames.
-    dataset = tf.contrib.data.TFRecordDataset(filenames)
-
-    # Repeat the input indefinitely.
-    dataset = dataset.repeat()
-    # Parse the record into tensors.
-    dataset = dataset.map(_parse_function)
-    # Shuffle the dataset
-    dataset = dataset.shuffle(buffer_size=10000)
-    # Generate batches
-    # dataset = dataset.batch(128)
-
-    # iterator = dataset.make_initializable_iterator()
-    # print(dataset.output_types)  # ==> (tf.float32, (tf.float32, tf.int32))
-    # print(dataset.output_shapes)  # ==> "(10, ((), (100,)))"
-
-    dataset = dataset.padded_batch(batch_size, padded_shapes=((), (), (), [None], ()))
-    # Create a one-shot iterator
-    iterator = dataset.make_one_shot_iterator()
-    next_element = iterator.get_next()
-
-    # with tf.Session() as sess:
-    #     for i in range(100):
-    #         record = sess.run(next_element)
-    return next_element
-
-def get_input_dataset(train_filename,test_filename,batch_size):
-    with tf.device("/cpu:0"):
-        with tf.variable_scope('input'):
-            # test_filename = '/home/wanli/data/Extended_ctr/dummy_test_1.tfrecords'
-            # train_filename = '/home/wanli/data/Extended_ctr/dummy_train_1.tfrecords'
-
-            # Creates a dataset that reads all of the examples from filenames.
-            validation_dataset = tf.contrib.data.TFRecordDataset(test_filename)
-            training_dataset = tf.contrib.data.TFRecordDataset(train_filename)
-
-            validation_dataset = validation_dataset.repeat()
-            training_dataset = training_dataset.repeat()
-
-            validation_dataset = validation_dataset.map(_parse_function)
-            training_dataset = training_dataset.map(_parse_function)
-
-            training_dataset = training_dataset.padded_batch(batch_size, padded_shapes=((), (), (), [None], ()))
-            validation_dataset = validation_dataset.padded_batch(batch_size, padded_shapes=((), (), (), [None], ()))
-
-            # A reinitializable iterator is defined by its structure. We could use the
-            # `output_types` and `output_shapes` properties of either `training_dataset`
-            # or `validation_dataset` here, because they are compatible.
-            iterator = tf.contrib.data.Iterator.from_structure(training_dataset.output_types,
-                                                               training_dataset.output_shapes)
-
-            training_init_op = iterator.make_initializer(training_dataset)
-            validation_init_op = iterator.make_initializer(validation_dataset)
-
-            next_element = iterator.get_next()
-
-            return next_element, (training_init_op,validation_init_op)
