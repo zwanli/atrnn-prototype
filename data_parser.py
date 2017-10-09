@@ -94,6 +94,7 @@ class DataParser(object):
         # self.raw_labels, self.raw_data = self.parse_paper_raw_data()
 
         self.ratings = self.generate_ratings_matrix()
+        self.raw_ratings= self.generate_raw_ratings_matrix()
         # self.build_document_word_matrix()
         # print("shape")
         # print(self.document_words.shape)
@@ -451,6 +452,26 @@ class DataParser(object):
                 i += 1
         return ratings
 
+    def generate_raw_ratings_matrix(self):
+        """
+        Generates a rating matrix of user x paper
+        """
+        if self.paper_count is None:
+            self.raw_labels, self.raw_data = self.parse_paper_raw_data()
+
+        # print self.paper_count
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.dataset_folder, 'users.dat')
+        self.user_count = sum(1 for line in open(path))
+        ratings = np.zeros((self.user_count, self.paper_count))
+        i = 0
+        with open(path, "r") as f:
+            for line in f:
+                splitted = line.replace("\n", "").split(" ")
+                for paper_id in splitted:
+                    ratings[i][int(paper_id)] = int(paper_id)
+                i += 1
+        return ratings
+
     def get_raw_data(self):
         return self.raw_labels, self.raw_data
 
@@ -463,6 +484,9 @@ class DataParser(object):
 
     def get_ratings_matrix(self):
         return self.ratings
+
+    def get_raw_ratings_matrix(self):
+        return self.raw_ratings
 
     def get_vocab_size(self):
         if self.use_pre_trained_embed:
@@ -626,7 +650,7 @@ class DataParser(object):
 
 
 
-    def generate_samples(self, batch_size,fold, train=True, validation=False, test=False):
+    def generate_batch_samples(self, batch_size,fold, train=True, validation=False, test=False):
         ratings = np.zeros((self.user_count, self.paper_count),dtype=np.int32)
 
         if test:
@@ -636,7 +660,7 @@ class DataParser(object):
 
         for i, u in enumerate(ratings_[fold]):
                 for v in u:
-                    ratings[i][v]=1
+                    ratings[i][v]=self.ratings[i,v]
 
         self.nonzero_u_idx = ratings.nonzero()[0]
         self.nonzero_v_idx = ratings.nonzero()[1]
@@ -660,6 +684,23 @@ class DataParser(object):
             else:
                 yield u_idx[0], v_idx[0], r[0], docs[0]
         # return True
+
+    def generate_samples(self,fold, train=True, validation=False, test=False):
+        # ratings = np.zeros((self.user_count, self.paper_count),dtype=np.int32)
+        #
+        if test:
+            ratings_ = self.test_ratings
+        elif train:
+            ratings_ = self.train_ratings
+
+        for i, u in enumerate(ratings_[fold]):
+                for v in u:
+                    # ratings[i][v]=self.ratings[i,v]
+                    u_id = i
+                    v_id = v
+                    r = self.ratings[i,v]
+                    doc= np.array(self.all_documents[v_id])
+                    yield u_id, v_id, int(r), doc
 
     def get_confidence_matrix(self,mode='default',**kwargs):
         '''

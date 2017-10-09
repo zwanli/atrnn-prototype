@@ -59,13 +59,15 @@ def convert_to_tfrecords(path, parser,fold, maxlen, validation=False, test=False
     """Converts a dataset to tfrecords."""
     print('Writing', path)
     writer = tf.python_io.TFRecordWriter(path)
-    for u_id, v_id, rating, doc in parser.generate_samples(1, fold, validation=validation, test=test):
+    for u_id, v_id, rating, doc in parser.generate_samples(fold, validation=validation, test=test):
         context = tf.train.Features(feature={
             'u': _int64_feature(u_id),
             'v': _int64_feature(v_id),
             'r': _int64_feature(rating),
             'abs_length': _int64_feature(len(doc))
         })
+        if rating == 0:
+            print (u_id,v_id)
         feature_lists = tf.train.FeatureLists(feature_list={
             "abstract": _int64_feature_list(doc[:maxlen]) })
         sequence_example = tf.train.SequenceExample(

@@ -7,7 +7,7 @@ from model import get_input_dataset
 
 def weight_variable(shape, name):
     initial = tf.truncated_normal(shape, stddev=0.001)
-    return tf.Variable(initial, name=name)
+    return tf.get_variable( name=name,initializer=initial)
 
 def bias_variable(shape, name):
     b_init = tf.constant_initializer(0.)
@@ -32,9 +32,12 @@ class DMF_Model():
         self.learning_rate = args.learning_rate
         self.maxlen = args.max_length
         self.reg_lambda = tf.constant(reg_lambda, dtype=tf.float32)
-
         self.batch_size = args.batch_size
 
+        self.batch_pointer = tf.Variable(0, name="batch_pointer", trainable=False, dtype=tf.int32)
+        self.inc_batch_pointer_op = tf.assign(self.batch_pointer, self.batch_pointer + 1)
+
+        ##Get input
         outputs,init_ops = get_input_dataset(train_filename,test_filename, batch_size=self.batch_size)
         self.u_idx,self.v_idx, self.r, self.input_text, self.seq_lengths = outputs
 
@@ -146,8 +149,8 @@ class DMF_Model():
         self.Y_matrix = tf.constant(M,dtype=tf.float32,shape=M.shape,name="Y_actual")
 
         # Network Parameters
-        n_hidden_1 = 1024  # 1st layer number of neurons
-        n_hidden_2 = 512  # 2nd layer number of neurons
+        n_hidden_1 = 300  # 1st layer number of neurons
+        n_hidden_2 = 250  # 2nd layer number of neurons
         n_hidden_3 = 265
         n_output = 200  # MNIST total classes (0-9 digits)
 
@@ -157,26 +160,27 @@ class DMF_Model():
         self.V_bias = weight_variable([self.m], 'V_bias')
 
         # Users' raws form U matrix considered for the current batch [batch_size, embeddings_dim]
-        self.U_embed = tf.nn.embedding_lookup(tf.transpose(self.Y_matrix), self.u_idx)
+        self.U_embed = tf.nn.embedding_lookup(tf.transpose(self.Y_matrix), self.v_idx)
+        self.U_embed = tf.Print(self.U_embed,[tf.shape(self.U_embed),tf.reduce_sum(self.U_embed),self.u_idx],message='U',first_n=20,summarize=4)
         # Items' raws form V matrix considered for the current batch [batch_size, embeddings_dim]
-        self.V_embed = tf.nn.embedding_lookup(self.Y_matrix, self.v_idx)
+        self.V_embed = tf.nn.embedding_lookup(self.Y_matrix, self.u_idx)
+        self.V_embed = tf.Print(self.V_embed,[tf.shape(self.V_embed),tf.reduce_sum(self.V_embed),self.v_idx],message='V',first_n=20,summarize=4)
 
         self.U_bias_embed = tf.nn.embedding_lookup(self.U_bias, self.u_idx)
         self.V_bias_embed = tf.nn.embedding_lookup(self.V_bias, self.v_idx)
 
-        with tf.name_scope('hidden_layer%d' % (args.mf_num_layers)):
+
+        with tf.variable_scope('DeepMF_%d' % (args.mf_num_layers)):
 
             # First layer, User side
             with tf.name_scope('U_layer1'):
                 w_U_1 = weight_variable([self.n,n_hidden_1], 'W_U_1')
-                # b_U_1 = bias_variable(self.n, 'B_U_1')
                 h_U_1 = tf.nn.relu(tf.matmul(self.U_embed, w_U_1))
 
 
             # First layer, item side
             with tf.name_scope('V_layer1'):
                 w_V_1 = weight_variable([self.m,n_hidden_1], 'W_V_1')
-                # b_V_1 = bias_variable(self.n, 'B_V_1')
                 h_V_1 = tf.nn.relu(tf.matmul(self.V_embed, w_V_1))
 
             #Hidden layers
@@ -204,38 +208,96 @@ class DMF_Model():
                         b_V_h = bias_variable(n_hidden_3, 'B_V_%d' % n)
                         h_V_h = tf.nn.relu(tf.add(tf.matmul(h_V_h,w_V_h),b_V_h), 'h_V_%d' % n)
 
-        with tf.name_scope('output_layer'):
-            with tf.name_scope('U_out_layer'):
-                if args.mf_num_layers > 2:
-                    n_hidden_prev = n_hidden_3
-                else:
-                    n_hidden_prev = n_hidden_2
-                w_U_out = weight_variable([n_hidden_prev, n_output], 'W_U_out')
-                b_U_out = bias_variable(n_output, 'B_U_out')
-                p = tf.nn.relu(tf.add(tf.matmul(h_U_h, w_U_out), b_U_out), 'item_embedding')
-            # Hidden layer, item side
-            with tf.name_scope('V_out_layer'):
-                w_V_out = weight_variable([n_hidden_prev, n_output], 'W_V_out')
-                b_V_out = bias_variable(n_output, 'B_V_out')
-                q = tf.nn.relu(tf.add(tf.matmul(h_V_h, w_V_out), b_V_out), 'user_embedding')
+            with tf.name_scope('output_layer'):
+                with tf.name_scope('U_out_layer'):
+                    if args.mf_num_layers > 2:
+                        n_hidden_prev = n_hidden_3
+                    else:
+                        n_hidden_prev = n_hidden_2
+                    w_U_out = weight_variable([n_hidden_prev, n_output], 'W_U_out')
+                    b_U_out = bias_variable(n_output, 'B_U_out')
+                    p = tf.nn.relu(tf.add(tf.matmul(h_U_h, w_U_out), b_U_out), 'item_embedding')
+                # Hidden layer, item side
+                with tf.name_scope('V_out_layer'):
+                    w_V_out = weight_variable([n_hidden_prev, n_output], 'W_V_out')
+                    b_V_out = bias_variable(n_output, 'B_V_out')
+                    q = tf.nn.relu(tf.add(tf.matmul(h_V_h, w_V_out), b_V_out), 'user_embedding')
+
+        with tf.name_scope('joint_output'):
+            #model output
+            #combine the rnn output with the item embedding
+            # self.F = tf.add(q, self.G)
+            self.F = q
+            self.F = tf.Print(self.F, [self.F,tf.shape(self.F)], message='Q=',first_n=20,summarize=4)
+            p = tf.Print(p, [p,tf.shape(p)], message='P=',first_n=20,summarize=4)
+
+            mu = 1e-6
+            #cosine distance
+            cos_dist = tf.losses.cosine_distance(tf.nn.l2_normalize(p,1),tf.nn.l2_normalize(self.F,1)
+                                                            ,reduction=tf.losses.Reduction.NONE,dim=1)
+            cos_dist = tf.Print(cos_dist,[cos_dist,tf.shape(cos_dist)],message='cos_dist',first_n=20,summarize=4)
+
+            #cos_similarity
+            cos_similarity = tf.subtract(1.0, cos_dist)
+            cos_similarity = tf.Print(cos_similarity,[tf.reduce_max(cos_similarity),tf.reduce_min(cos_similarity)],
+                                      message='cos_sim',first_n=20,summarize=4)
+            # Make sure the outpust is positive
+            logits = tf.maximum(cos_similarity,mu)
+
+            logits = tf.Print(logits, [logits,tf.shape(logits),tf.reduce_min(logits),tf.reduce_max(logits),tf.count_nonzero(logits)],
+                              message='Logits=',first_n=20,summarize=4)
+
+        with tf.name_scope('regularize'):
+            # t_vars = tf.trainable_variables()
+            # weights_biases = [var for var in t_vars if 'DeepMF' in var.name]
+            # reg = tf.add_n([tf.nn.l2_loss(v) for v in weights_biases]) * self.reg_lambda
+            weights_biases = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'DeepMF')
+            regularizer = tf.contrib.layers.l2_regularizer(scale=self.reg_lambda)
+            reg_term = tf.contrib.layers.apply_regularization(regularizer, weights_biases)
+
+        with tf.name_scope('loss'):
+            # Define loss and optimizer
+            #Create a 2D labels array [Batch_size, 2]
+            #The first dimension is the actual label, the second is (10-label)
+            # r_2D = tf.stack([self.r, tf.subtract(1.0, self.r)], axis=1)
+            logits_2D = tf.concat([logits, tf.subtract(1.0, logits)], axis=1)
+            self.cross_entropy = tf.reduce_mean(tf.losses.sparse_softmax_cross_entropy(
+                logits=logits_2D, labels=tf.to_int32(self.r), weights=confidence))
+
+            self.cross_entropy = tf.Print(self.cross_entropy, [self.cross_entropy], message='CE=',first_n=20,summarize=4)
+
+            loss = tf.add(self.cross_entropy , tf.reduce_sum(reg_term))
+            loss = tf.add(loss,self.U_bias_embed)
+            loss = tf.add(loss,self.V_bias_embed)
+            loss = tf.Print(loss, [loss], message='Loss=',first_n=20,summarize=4)
 
 
-        #model output
-        #combine the rnn output with the item embedding
-        self.F = tf.add(q, self.G)
+            # self.train_step_rnn = self.optimizer.minimize(self.reg_loss, var_list=[gru_vars])
+        with tf.name_scope('learning_rate_decay'):
+            # self.global_step = tf.Variable(0, trainable=False)
+            starter_learning_rate = self.learning_rate
+            learning_rate = tf.train.exponential_decay(starter_learning_rate, self.batch_pointer,
+                                                       100000, 0.96, staircase=True)
 
-        #cos_similarity
-        logits = tf.subtract(1.0, tf.losses.cosine_distance(tf.nn.l2_normalize(p,0),tf.nn.l2_normalize(self.F,0)
-                                                            ,reduction=tf.losses.Reduction.NONE,dim=1))
+        with tf.name_scope('adam_optimizer'):
+            optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
+            self.train_op = optimizer.minimize(loss)
 
-        # Define loss and optimizer
-        loss_op = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
-            logits=logits, labels=tf.cast(self.r,dtype=tf.int32)))
-        loss_op = tf.losses.sparse_softmax_cross_entropy(logits=logits, labels=tf.cast(self.r,dtype=tf.int32))
-
-        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
-        self.train_op = optimizer.minimize(loss_op)
-
+        with tf.name_scope('metrics'):
+            correct_prediction = tf.greater(logits,0.5)
+            correct_prediction = tf.cast(correct_prediction, tf.float32)
+            correct_prediction = tf.equal(correct_prediction, self.r)
+            correct_prediction = tf.cast(correct_prediction, tf.float32)
+            accuracy = tf.reduce_mean(correct_prediction)
+            self.MSE = tf.losses.mean_squared_error(self.r,tf.reshape(logits,[-1]))
+            self.RMSE = tf.sqrt(self.MSE)
+        # stats for display
+        # loss_summary = tf.summary.scalar("batch_loss", batchloss)
+        acc_summary = tf.summary.scalar("batch_accuracy", accuracy)
+        tf.summary.scalar("RMSE", self.RMSE)
+        tf.summary.scalar('Cross-entropy',self.cross_entropy)
+        # add op for merging summary
+        self.summary_op = tf.summary.merge_all()
 
         #
         #
@@ -269,20 +331,45 @@ class DMF_Model():
         # self.train_step_rnn = self.optimizer.minimize(self.reg_loss, var_list=[gru_vars])
         #
         # tf.summary.scalar("MSE", self.MSE)
-        # tf.summary.scalar("RMSE", self.RMSE)
+
         # tf.summary.scalar("MAE", self.MAE)
         # tf.summary.scalar("L2-Loss", self.l2_loss)
         # tf.summary.scalar("Reg-Loss", self.reg_loss)
         #
 
-        tf.summary.scalar('Cross-entropy',loss_op)
-        # add op for merging summary
-        self.summary_op = tf.summary.merge_all()
 
 
 
         # add Saver ops
         self.saver = tf.train.Saver()
+
+    def loss(self, logits, labels):
+        """Calculates the loss from the logits and the labels.
+
+        Args:
+          logits: Logits tensor, float - [batch_size, 2].
+          labels: Labels tensor, int32 - [batch_size, 2].
+
+        Returns:
+          loss: Loss tensor of type float.
+        """
+        with tf.name_scope('loss'):
+            logits = tf.reshape(logits, (-1, 2))
+            shape = [logits.get_shape()[0], 2]
+            epsilon = tf.constant(value=1e-8, shape=shape)
+            logits = logits + epsilon
+            labels = tf.to_float(tf.reshape(labels, (-1, 2)))
+
+            softmax = tf.nn.softmax(logits)
+            cross_entropy = -tf.reduce_sum(labels * tf.log(softmax),
+                                           reduction_indices=[1])
+
+            cross_entropy_mean = tf.reduce_mean(cross_entropy,
+                                                name='xentropy_mean')
+            tf.add_to_collection('losses', cross_entropy_mean)
+
+            loss = tf.add_n(tf.get_collection('losses'), name='total_loss')
+        return loss
 
     def metrics(self):
         self.recall = tf.Variable(0, trainable=False,dtype=tf.float32)
