@@ -66,9 +66,9 @@ def main():
     #                         'model.ckpt-*'      : file(s) with model definition (created by tf)
     #                     """)
     args = parser.parse_args()
-    # train(args)
+    train(args)
     # partial_run(args)
-    train_dmf(args)
+    #train_dmf(args)
 
 
 def load_abstracts(parser,dataset_folder, dataset):
@@ -223,13 +223,15 @@ def train(args):
 
     graph = tf.Graph()
     with graph.as_default():
-        # #####TEST AREA ###############
+
+        # # #####TEST AREA ###############
         # args.mf_num_layers = 2
         # model_dmf = DMF_Model(args, parser.get_ratings_matrix(), parser.embeddings, confidence_matrix, path_training, path_test)
         # train_writer = tf.summary.FileWriter(args.log_dir + '/{0}-train'.format(dir_prefix),graph=tf.get_default_graph())
-        # # a = 0
-        #
-        # #####TEST AREA ###############
+        # a = 0
+        # #
+        # # #####TEST AREA ###############
+        args.training_samples_count = example_count_train
         model = Model(args, parser.get_ratings_matrix(), parser.embeddings, confidence_matrix, path_training, path_test)
         train_writer = tf.summary.FileWriter(args.log_dir + '/{0}-train'.format(dir_prefix))
         # valid_writer = tf.summary.FileWriter(args.log_dir + '/{0}-validation'.format(time.strftime(dir_prefix)))
@@ -419,12 +421,13 @@ def train_dmf(args):
     graph = tf.Graph()
     with graph.as_default():
         #####TEST AREA ###############
+        args.training_samples_count = example_count_train
         args.mf_num_layers = 2
         model = DMF_Model(args, parser.get_raw_ratings_matrix(), parser.embeddings, confidence_matrix,
                               path_training, path_test)
         train_writer = tf.summary.FileWriter(args.log_dir + '/{0}-train'.format(dir_prefix),
                                              graph=tf.get_default_graph())
-        # a = 0
+        a = 0
 
         #####TEST AREA ###############
         # model = Model(args, parser.get_ratings_matrix(), parser.embeddings, confidence_matrix, path_training,

@@ -227,24 +227,63 @@ class Model():
         self.saver = tf.train.Saver()
 
 
-def attribute_compononet(input,n_layers,):
-    # Implementation of a simple MLP network with one hidden layer.
-    def forwardprop(X, w_1, w_2):
-        """
-        Forward-propagation.
-        IMPORTANT: yhat is not softmax since TensorFlow's softmax_cross_entropy_with_logits() does that internally.
-        """
-        h = tf.nn.tanh(tf.matmul(X, w_1))  # The tanh function
-        yhat = tf.matmul(h, w_2)  # The \varphi function
-        return yhat
+    def attribute_compononet(self,input,n_layers,):
+        # Implementation of a simple MLP network with one hidden layer.
+        ## Deep matrix factorization model
+        self.features_matrix = tf.constant(input, dtype=tf.float32, shape=input.shape, name="attributes_matrix")
+        x_size = input.shape[1]
+        # Network Parameters
+        # calculate the number of hidden units for each hidden layer
+        # N_h = N_s / (alpha * (N_i + N_o))
+        # N_i  = number of input neurons.
+        # N_o = number of output neurons.
+        # N_s = number of samples in training data set.
+        # alpha = an arbitrary scaling factor usually 2-10.
 
-    x_size =  tf.shape(input)[0]  # Number of input nodes: 4 features
-    h_size = 256  # Number of hidden nodes
-    y_size = 10
-    # Symbols
+        alpha = 2
+        n_hidden_1 = int(self.training_samples_count / (alpha * (x_size + self.k)))  # 1st layer number of neurons
+        n_hidden_2 = int(self.training_samples_count / (alpha * (x_size + self.k)))
+        n_hidden_3 = int(self.training_samples_count / (alpha * (x_size + self.k)))  # 1st layer number of neurons
+        y_size = self.k
 
-    x = tf.placeholder("float", shape=[None, x_size])
-    y = tf.placeholder("float", shape=[None, y_size])
+        #
+        self.input_att = tf.nn.embedding_lookup(self.features_matrix, self.v_idx)
+        self.input_att = tf.Print(self.input_att, [tf.shape(self.input_att), self.input_att],
+                                message='Attributes', first_n=20, summarize=4)
+
+        with tf.variable_scope('Attributes_component_%d-layers' % (n_layers)):
+
+            # Input layer, User side
+            with tf.name_scope('U_input_layer'):
+                w_1 = weight_variable([x_size,n_hidden_1], 'W_1')
+                b_1 = bias_variable(n_hidden_1, 'B_1')
+                h_1 = tf.nn.relu(tf.add(tf.matmul(self.input_att, w_1), b_1))
+
+            #Hidden layers
+            for n in range(2,n_layers + 1):
+                if n == 2:
+                    # Hidden layer
+                    with tf.name_scope('U_layer%d' % n):
+                        w_h = weight_variable([n_hidden_1,n_hidden_2], 'W_%d' % n)
+                        b_h = bias_variable(n_hidden_2, 'B_%d' % n)
+                        h_h = tf.nn.relu(tf.add(tf.matmul(h_1,w_h),b_h),'h_%d' % n)
+                else:
+                    # Hidden layer
+                    with tf.name_scope('U_layer%d' % n):
+                        w_h = weight_variable([n_hidden_2,n_hidden_3], 'W_%d' % n)
+                        b_h = bias_variable(n_hidden_3, 'B_%d' % n)
+                        h_U_h = tf.nn.relu(tf.add(tf.matmul(h_h,w_h),b_h), 'h_%d' % n)
+            with tf.name_scope('output_layer'):
+                if n_layers > 2:
+                    n_hidden_prev = n_hidden_3
+                else:
+                    n_hidden_prev = n_hidden_2
+                w_U_out = weight_variable([n_hidden_prev, y_size], 'W_out')
+                b_U_out = bias_variable(y_size, 'B_out')
+                attribute_output = tf.nn.relu(tf.add(tf.matmul(h_U_h, w_U_out), b_U_out), 'Attributes_output')
+        return attribute_output
+
+
 
 def get_inputs(filename,batch_size,test=False):
 

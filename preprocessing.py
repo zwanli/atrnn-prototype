@@ -10,6 +10,9 @@ import numpy as np
 import datetime
 from prettytable import PrettyTable
 import pandas as pd
+import pandas as pd
+from sklearn import preprocessing
+
 maxInt = sys.maxsize
 decrement = True
 
@@ -282,15 +285,26 @@ def process_features(path,paper_count ):
     month_convert_func = lambda x: x if x in months else null_token
 
     def number_convert_func (x):
+        if x == '-1':
+            return null_token
         if is_number(x):
             return x
+        return null_token
+
+    def year_convert_func (x):
+        if is_number(x):
+            if x == 'NaN':
+                return null_token
+            x = int(x)
+            if x < 1000:
+                return null_token
+            return now.year - x
         else:
-            print(x)
-            return -1
+            return null_token
 
     labels = ['doc_id', 'citeulike_id', 'type', 'pages', 'year']
     labels_dtype = {'doc_id': np.int32, 'citeulike_id': np.int32, 'type': str, 'pages': np.int32}
-    convert_func= {'pages': number_convert_func, 'doc_id': number_convert_func,
+    convert_func= {'pages': number_convert_func, 'doc_id': number_convert_func, 'year': year_convert_func,
                    'citeulike_id': number_convert_func}
     # labels = ['doc_id', 'citeulike_id', 'type', 'journal', 'booktitle', 'series', 'pages', 'year', 'month', 'address']
     # labels_dtype = {'doc_id': np.int32, 'citeulike_id': np.int32, 'type': str, 'journal': str, 'booktitle': str,
@@ -302,6 +316,9 @@ def process_features(path,paper_count ):
     df = pd.read_table(clean_file_path, delimiter='\t', index_col = 'doc_id', usecols=labels,dtype=labels_dtype,
                          na_values='\\N',na_filter=False,
                          converters=convert_func)
+
+    # special case
+    df.year[df.year == -20058083] = null_token
 
     # Filter values with frequency less than min_freq
     def filter(df, tofilter_list, min_freq):
@@ -325,15 +342,40 @@ def process_features(path,paper_count ):
     todummy_list = ['type']
     df = dummmy_df(df, todummy_list)
 
-    # # features_matrix = np.asarray(feature_vec)
-    # # df = pd.DataFrame(features_matrix,columns=labels)
-    # # filter months
-    # df.month[~df['month'].isin(months)] = null_token
-    # print ('Uninque \'month\' values %d ' % df.month.nunique())
-    #
-    #
-    #
-    return labels, labels
+    # Remove the last generated column type_nan, it's always zero
+    df = df.drop('type_nan',1)
+    # # Remove 'citeulike_id' column, it will be added after normalization
+    # df = df.drop('citeulike_id',1)
+
+    # Replace NaN values with mean before normalization
+    # TODO: Make sure that the cells in the page column are positive
+    # Get the data as np array
+    values = df.values
+    # Impute the data using the mean value
+    imputer = preprocessing.Imputer(missing_values=null_token, strategy='mean')
+    transformed_values = imputer.fit_transform(values)
+
+    # Normalize the year and page columns
+    # Create a minimum and maximum processor object
+    min_max_scaler = preprocessing.MinMaxScaler()
+
+    # Create an object to transform the data to fit minmax processor
+    x_scaled = min_max_scaler.fit_transform(transformed_values)
+
+    # convert the scaled data into pandas dataframe
+    df_normalized = pd.DataFrame(x_scaled)
+
+    # rename columns
+    df_normalized.columns = df.columns
+
+    # add 'citeulike_id' column
+    df_normalized = df_normalized.assign(citeulike_id=df.citeulike_id.values)
+
+    outfile = os.path.splitext(path)[0]+'_processed.csv'
+
+    df_normalized.to_csv(outfile, sep='\t', na_rep='' )
+    print('Processed features saved to %s' % outfile)
+
 
 def feature_index(feature, labels):
     for index, label in enumerate(labels):
@@ -389,7 +431,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, default='/home/wanli/data/Extended_ctr',
                         help='data directory containing input.txt')
-    parser.add_argument("--dataset", "-d", type=str, default='dummy',
+    parser.add_argument("--dataset", "-d", type=str, default='citeulike-a',
                         help="Which dataset to use", choices=['dummy', 'citeulike-a', 'citeulike-t'])
     parser.add_argument('--embedding_dir', type=str, default='/home/wanli/data/cbow_w2v',
                         help='GloVe embedding directory containing embeddings file')
@@ -412,32 +454,31 @@ def main():
         print("File {0} doesn't exist".format(raw_data_path))
         raise
 
-    use_w2v = False
-    _, embed_dir= ntpath.split(args.embedding_dir)
-    if (embed_dir == 'cbow_w2v'):
-        use_w2v = True
-    load_embeddings(args.embedding_dir,args.embedding_dim,keep_embed=True,w2v=use_w2v)
-
-    process_documents(raw_data_path,args.dataset)
-
-    embeddings_path = os.path.join(dataset_folder, '{0}-embeddings-{1}-{2}.tfrecord'.
-                                   format(args.dataset,args.embedding_dim,'w2v' if use_w2v else 'glove'))
-    save_embeddings(embeddings_path)
-
-    print('Raw data vocabulary size {0}, frequency {1}'.format(len(vocab), sum(vocab.values())))
-    print('Processed data vocabulary size {0}, frequency {1}'.format(len(filtered_vocabulary),
-                                                                     sum(filtered_vocabulary.values())))
-    print('# of unique unknown words {0}, frequency of unknown words {1}'
-          .format(len(unknown_words),sum(unknown_words.values())))
-    print('Numbers frequency {0}'.format(numbers_freq))
+    # use_w2v = False
+    # _, embed_dir= ntpath.split(args.embedding_dir)
+    # if (embed_dir == 'cbow_w2v'):
+    #     use_w2v = True
+    # load_embeddings(args.embedding_dir,args.embedding_dim,keep_embed=True,w2v=use_w2v)
+    #
+    # process_documents(raw_data_path,args.dataset)
+    #
+    # embeddings_path = os.path.join(dataset_folder, '{0}-embeddings-{1}-{2}.tfrecord'.
+    #                                format(args.dataset,args.embedding_dim,'w2v' if use_w2v else 'glove'))
+    # save_embeddings(embeddings_path)
+    #
+    # print('Raw data vocabulary size {0}, frequency {1}'.format(len(vocab), sum(vocab.values())))
+    # print('Processed data vocabulary size {0}, frequency {1}'.format(len(filtered_vocabulary),
+    #                                                                  sum(filtered_vocabulary.values())))
+    # print('# of unique unknown words {0}, frequency of unknown words {1}'
+    #       .format(len(unknown_words),sum(unknown_words.values())))
+    # print('Numbers frequency {0}'.format(numbers_freq))
 
     # #
-    # paper_count={'dummy': 1929, 'citeulike-a': 16980, 'citeulike-t': 25976 }
-    # features_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), dataset_folder, 'paper_info.csv')
-    #
-    # labels, raw_features = process_features(features_path, paper_count=paper_count[args.dataset])
+    paper_count={'dummy': 1929, 'citeulike-a': 16980, 'citeulike-t': 25976 }
+    features_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), dataset_folder, 'paper_info.csv')
+
+    process_features(features_path, paper_count=paper_count[args.dataset])
     # # # get_features_distribution(labels, raw_features)
 
-    a =1
 if __name__ == '__main__':
     main()

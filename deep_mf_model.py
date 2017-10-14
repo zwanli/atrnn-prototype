@@ -28,6 +28,7 @@ class DMF_Model():
         # n: number of users
         # m: number of items
         self.n, self.m = M.shape
+        self.training_samples_count = args.training_samples_count
         self.k = args.embedding_dim
         self.learning_rate = args.learning_rate
         self.maxlen = args.max_length
@@ -149,22 +150,37 @@ class DMF_Model():
         self.Y_matrix = tf.constant(M,dtype=tf.float32,shape=M.shape,name="Y_actual")
 
         # Network Parameters
-        n_hidden_1 = 300  # 1st layer number of neurons
-        n_hidden_2 = 250  # 2nd layer number of neurons
-        n_hidden_3 = 265
-        n_output = 200  # MNIST total classes (0-9 digits)
+        # calculate the number of hidden units for each hidden layer
+        # N_h = N_s / (alpha * (N_i + N_o))
+        # N_i  = number of input neurons.
+        # N_o = number of output neurons.
+        # N_s = number of samples in training data set.
+        # alpha = an arbitrary scaling factor usually 2-10.
+        alpha = 0.1
+        n_hidden_1_U = int (self.training_samples_count / (alpha * (self.m + self.k))) # 1st layer number of neurons
+        n_hidden_1_V = int (self.training_samples_count / (alpha * (self.n + self.k)))  # 1st layer number of neurons
+        alpha *= 2
+        n_hidden_2_U = int (self.training_samples_count / (alpha * (self.m + self.k)))
+        n_hidden_2_V = int (self.training_samples_count / (alpha * (self.n + self.k)))  # 2nd layer number of neurons
+        alpha *= 3
+        n_hidden_3_U = int(self.training_samples_count / (alpha * (self.m + self.k)))  # 1st layer number of neurons
+        n_hidden_3_V = int(self.training_samples_count / (alpha * (self.n + self.k)))  # 1st layer number of neurons
+        n_output = self.k
 
 
         # U, V biases
         self.U_bias = weight_variable([self.n], 'U_bias')
         self.V_bias = weight_variable([self.m], 'V_bias')
 
-        # Users' raws form U matrix considered for the current batch [batch_size, embeddings_dim]
-        self.U_embed = tf.nn.embedding_lookup(tf.transpose(self.Y_matrix), self.v_idx)
-        self.U_embed = tf.Print(self.U_embed,[tf.shape(self.U_embed),tf.reduce_sum(self.U_embed),self.u_idx],message='U',first_n=20,summarize=4)
-        # Items' raws form V matrix considered for the current batch [batch_size, embeddings_dim]
-        self.V_embed = tf.nn.embedding_lookup(self.Y_matrix, self.u_idx)
+        # Users' raws form U matrix considered for the current batch [batch_size, num_items]
+        self.U_embed = tf.nn.embedding_lookup(self.Y_matrix, self.u_idx)
+        self.U_embed = tf.Print(self.U_embed, [tf.shape(self.U_embed), tf.reduce_sum(self.U_embed), self.u_idx],
+                                message='U', first_n=20, summarize=4)
+
+        # Items' raws form V matrix considered for the current batch [batch_size, num_users]
+        self.V_embed = tf.nn.embedding_lookup(tf.transpose(self.Y_matrix), self.v_idx)
         self.V_embed = tf.Print(self.V_embed,[tf.shape(self.V_embed),tf.reduce_sum(self.V_embed),self.v_idx],message='V',first_n=20,summarize=4)
+
 
         self.U_bias_embed = tf.nn.embedding_lookup(self.U_bias, self.u_idx)
         self.V_bias_embed = tf.nn.embedding_lookup(self.V_bias, self.v_idx)
@@ -173,52 +189,58 @@ class DMF_Model():
         with tf.variable_scope('DeepMF_%d' % (args.mf_num_layers)):
 
             # First layer, User side
-            with tf.name_scope('U_layer1'):
-                w_U_1 = weight_variable([self.n,n_hidden_1], 'W_U_1')
-                h_U_1 = tf.nn.relu(tf.matmul(self.U_embed, w_U_1))
+            with tf.name_scope('U_input_layer'):
+                w_U_1 = weight_variable([self.m,n_hidden_1_U], 'W_U_1')
+                b_U_1 = bias_variable(n_hidden_1_U, 'B_U_1')
+                h_U_1 = tf.nn.relu(tf.add(tf.matmul(self.U_embed, w_U_1), b_U_1))
 
 
             # First layer, item side
-            with tf.name_scope('V_layer1'):
-                w_V_1 = weight_variable([self.m,n_hidden_1], 'W_V_1')
-                h_V_1 = tf.nn.relu(tf.matmul(self.V_embed, w_V_1))
+            with tf.name_scope('V_input_layer'):
+                w_V_1 = weight_variable([self.n,n_hidden_1_V], 'W_V_1')
+                b_V_1 = bias_variable(n_hidden_1_V, 'B_V_1')
+                h_V_1 = tf.nn.relu(tf.add(tf.matmul(self.V_embed, w_V_1),b_V_1))
 
             #Hidden layers
             for n in range(2,args.mf_num_layers +1 ):
                 if n == 2:
                     # Hidden layer, User side
                     with tf.name_scope('U_layer%d' % n):
-                        w_U_h = weight_variable([n_hidden_1,n_hidden_2], 'W_U_%d' % n)
-                        b_U_h = bias_variable(n_hidden_2, 'B_U_%d' % n)
+                        w_U_h = weight_variable([n_hidden_1_U,n_hidden_2_U], 'W_U_%d' % n)
+                        b_U_h = bias_variable(n_hidden_2_U, 'B_U_%d' % n)
                         h_U_h = tf.nn.relu(tf.add(tf.matmul(h_U_1,w_U_h),b_U_h),'h_U_%d' % n)
                     # Hidden layer, item side
                     with tf.name_scope('V_layer%d' % n):
-                        w_V_h = weight_variable([n_hidden_1,n_hidden_2], 'W_V_%d' % n)
-                        b_V_h = bias_variable(n_hidden_2, 'B_V_%d' % n)
+                        w_V_h = weight_variable([n_hidden_1_V,n_hidden_2_V], 'W_V_%d' % n)
+                        b_V_h = bias_variable(n_hidden_2_V, 'B_V_%d' % n)
                         h_V_h = tf.nn.relu(tf.add(tf.matmul(h_V_1,w_V_h),b_V_h),'h_V_%d' % n)
                 else:
                     # Hidden layer, User side
                     with tf.name_scope('U_layer%d' % n):
-                        w_U_h = weight_variable([n_hidden_2,n_hidden_3], 'W_U_%d' % n)
-                        b_U_h = bias_variable(n_hidden_3, 'B_U_%d' % n)
+                        w_U_h = weight_variable([n_hidden_2_U,n_hidden_3_U], 'W_U_%d' % n)
+                        b_U_h = bias_variable(n_hidden_3_U, 'B_U_%d' % n)
                         h_U_h = tf.nn.relu(tf.add(tf.matmul(h_U_h,w_U_h),b_U_h), 'h_U_%d' % n)
                     # Hidden layer, item side
                     with tf.name_scope('V_layer%d' % n):
-                        w_V_h = weight_variable([n_hidden_2,n_hidden_3], 'W_V_%d' % n)
-                        b_V_h = bias_variable(n_hidden_3, 'B_V_%d' % n)
+                        w_V_h = weight_variable([n_hidden_2_V,n_hidden_3_V], 'W_V_%d' % n)
+                        b_V_h = bias_variable(n_hidden_3_V, 'B_V_%d' % n)
                         h_V_h = tf.nn.relu(tf.add(tf.matmul(h_V_h,w_V_h),b_V_h), 'h_V_%d' % n)
 
             with tf.name_scope('output_layer'):
                 with tf.name_scope('U_out_layer'):
                     if args.mf_num_layers > 2:
-                        n_hidden_prev = n_hidden_3
+                        n_hidden_prev = n_hidden_3_U
                     else:
-                        n_hidden_prev = n_hidden_2
+                        n_hidden_prev = n_hidden_2_U
                     w_U_out = weight_variable([n_hidden_prev, n_output], 'W_U_out')
                     b_U_out = bias_variable(n_output, 'B_U_out')
                     p = tf.nn.relu(tf.add(tf.matmul(h_U_h, w_U_out), b_U_out), 'item_embedding')
                 # Hidden layer, item side
                 with tf.name_scope('V_out_layer'):
+                    if args.mf_num_layers > 2:
+                        n_hidden_prev = n_hidden_3_V
+                    else:
+                        n_hidden_prev = n_hidden_2_V
                     w_V_out = weight_variable([n_hidden_prev, n_output], 'W_V_out')
                     b_V_out = bias_variable(n_output, 'B_V_out')
                     q = tf.nn.relu(tf.add(tf.matmul(h_V_h, w_V_out), b_V_out), 'user_embedding')

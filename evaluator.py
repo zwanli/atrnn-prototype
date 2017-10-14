@@ -4,6 +4,7 @@ A module that provides functionalities for calculating error metrics
 and evaluates the given recommender.
 """
 import numpy
+from math import log
 from top_recommendations import TopRecommendations
 
 
@@ -275,6 +276,8 @@ class Evaluator(object):
         self.recs_loaded = True
         return self.recommendation_indices
 
+
+
     def get_rmse(self, predicted, actual=None):
         """
         The method given a prediction matrix returns the root mean squared error (rmse).
@@ -355,10 +358,12 @@ class Evaluator(object):
             if idcg != 0:
                 # print('ndcg for user {0}: {1}'.format(user, dcg / idcg))
                 ndcgs.append(dcg / idcg)
-            # else:
+            if self._verbose:
+                print('User {0},# recomendations {1} dcg {2:.3}, idcg {3:.3}, ndcg {4:.3}'.format(user, len(self.recommendation_indices[user]), dcg, idcg, (dcg/idcg)))
+
+                # else:
             #     ndcgs.append(0.0)
 
-        print('sum {0}, len {1}'.format(sum(ndcgs), len(ndcgs)))
         return numpy.mean(ndcgs, dtype=numpy.float16)
 
     def calculate_mrr(self, n_recommendations, rounded_predictions):

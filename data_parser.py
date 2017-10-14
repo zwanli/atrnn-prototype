@@ -138,8 +138,7 @@ class DataParser(object):
         """
         Parses paper features
         """
-        now = datetime.datetime.now()
-        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.dataset_folder, 'paper_info.csv')
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.dataset_folder, 'paper_info_processed.csv')
         with open(path, "r",encoding='utf-8', errors='ignore') as f:
             reader = csv.reader(f, delimiter='\t')
             first_line = True
@@ -150,27 +149,24 @@ class DataParser(object):
             for line in reader:
                 if first_line:
                     labels = []
-                    # labels=["type", "journal", "booktitle", "series", "publisher", "year", "address"]
                     for j, entry in enumerate(line):
-                        if entry != 'abstract':
-                            labels.append(entry)
-                            labels_ids.append(j)
+                            if entry != 'citeulike_id':
+                                labels.append(entry)
+                                labels_ids.append(j)
                     row_length = len(labels_ids)
                     first_line = False
                     i += 1
                     continue
                 paper_id = line[0]
-                self.id_map[int(line[1])] = paper_id
+                if line[1] != 'NaN':
+                    self.id_map[int(line[1])] = paper_id
                 if int(paper_id) != i:
                     for _ in range(int(paper_id) - i):
                         feature_vec.append(['\\N'] * row_length)
                         i += 1
                 current_entry = []
-                for k, label_id in enumerate(labels_ids):
-                    if labels[k] == 'year':
-                        current_entry.append(now.year - int(line[label_id]))
-                    else:
-                        current_entry.append(line[label_id])
+                for label_id in labels_ids:
+                    current_entry.append(line[label_id])
                 feature_vec.append(current_entry)
                 i += 1
 

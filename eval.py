@@ -11,6 +11,7 @@ from tensorflow.contrib import rnn
 import time
 import utils
 from scipy.sparse import rand
+from math import log
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -521,11 +522,11 @@ def test_5():
             print("Finshed training")
 
 
-def test_top_recommendations(n,m,k,only_on_test_set, verbos=False):
-    np.random.seed(20)
+def test_random_recommender(n, m, k, only_on_test_set, verbos=False):
+    # np.random.seed(20)
 
     # ratings_matrix=np.random.randint(2,size=(n,m))
-    ratings_matrix = rand(n, m,density=0.01,random_state=20)
+    ratings_matrix = rand(n, m,density=0.004)
     ratings_matrix.data[:] = 1
 
     ratings_matrix = ratings_matrix.toarray().astype(np.int32)
@@ -536,7 +537,7 @@ def test_top_recommendations(n,m,k,only_on_test_set, verbos=False):
         num_rating = np.count_nonzero(ratings_matrix)
         idx = np.arange(num_rating)
         np.random.shuffle(idx)
-        test_idx = idx[int(0.95 * num_rating):]
+        test_idx = idx[int(0.70 * num_rating):]
         nonzero_u_idx = ratings_matrix.nonzero()[0]
         nonzero_v_idx = ratings_matrix.nonzero()[1]
         u_idx = nonzero_u_idx[test_idx]
@@ -545,17 +546,17 @@ def test_top_recommendations(n,m,k,only_on_test_set, verbos=False):
         test_ratings[u_idx, v_idx] = 1
     else:
         test_ratings=ratings_matrix.copy()
-    np.random.seed(40)
+    # np.random.seed(40)
 
-    U=np.random.randint(100, size=(n,k)) / 1000
+    U=np.random.randint(100, size=(n,k)) / 100
     # print(U,end='\n -------------------------------------\n')
-    np.random.seed(30)
+    # np.random.seed(30)
 
-    V=np.random.randint(100, size=(m,k)) / 1000
+    V=np.random.randint(100, size=(m,k)) / 100
     # print(V,end='\n -------------------------------------\n')
-    np.random.seed(21)
+    # np.random.seed(21)
 
-    rnn_output = np.random.randint(100, size=(m,k)) / 1000
+    rnn_output = np.random.randint(100, size=(m,k)) / 100
     # print(rnn_output,end='\n -------------------------------------\n')
     evaluator = Evaluator(ratings_matrix, verbose=True)
 
@@ -566,26 +567,32 @@ def test_top_recommendations(n,m,k,only_on_test_set, verbos=False):
     # prediction_matrix = np.add(prediction_matrix, np.reshape(U_b, [-1, 1]))
     # prediction_matrix = np.add(prediction_matrix, V_b)
     rounded_predictions = utils.rounded_predictions(prediction_matrix)
+    #
+    n_top_recommednations= 200
+    if only_on_test_set:
+        evaluator.load_top_recommendations_2(n_top_recommednations, prediction_matrix, test_ratings)
+    else:
+        evaluator.new_load_top_recommendations(n_top_recommednations, prediction_matrix, test_ratings)
 
-
-    evaluator.new_load_top_recommendations(2, prediction_matrix, test_ratings)
     recall_10 = evaluator.recall_at_x(10, prediction_matrix,ratings_matrix, rounded_predictions)
     recall_50 = evaluator.recall_at_x(50, prediction_matrix, ratings_matrix, rounded_predictions)
-    recall_100 = evaluator.recall_at_x(100, prediction_matrix, ratings_matrix, rounded_predictions)
-    recall_200 = evaluator.recall_at_x(200, prediction_matrix, ratings_matrix, rounded_predictions)
+    # recall_100 = evaluator.recall_at_x(100, prediction_matrix, ratings_matrix, rounded_predictions)
+    # recall_200 = evaluator.recall_at_x(200, prediction_matrix, ratings_matrix, rounded_predictions)
     recall = evaluator.calculate_recall(ratings=ratings_matrix, predictions=rounded_predictions)
     ndcg_at_five = evaluator.calculate_ndcg(5, rounded_predictions)
+    print('ndcg@5 %f ' % ndcg_at_five)
+    #
     ndcg_at_ten = evaluator.calculate_ndcg(10, rounded_predictions)
+    print('ndcg@10 %f ' % ndcg_at_ten)
+
     ndcg_at_50 = evaluator.calculate_ndcg(50, rounded_predictions)
+    print('ndcg@50 %f ' % ndcg_at_50)
 
     # print("         | Recall@10: {0:3.4f}".format(recall_10))
     # print("         | Recall@50: {0:3.4f}".format(recall_50))
     # print("         | Recall@100: {0:3.4f}".format(recall_100))
     # print("         | Recall@200: {0:3.4f}".format(recall_200))
     # print("         | Recall: {0:3.4f}".format(recall))
-    print('ndcg@5 %f ' % ndcg_at_five)
-    print('ndcg@10 %f ' % ndcg_at_ten)
-    print('ndcg@50 %f ' % ndcg_at_50)
     mrr_at_ten = evaluator.calculate_mrr(10, rounded_predictions)
     print('mrr@10 %f ' % mrr_at_ten)
     if verbos:
@@ -599,6 +606,103 @@ def test_top_recommendations(n,m,k,only_on_test_set, verbos=False):
         print(sorted_prediction_matrix,end='\n -------------------------------------\n')
         print('Rounded_predictions')
         print(rounded_predictions, end='\n -------------------------------------\n')
+
+def test_metrics( verbos=False):
+
+    np.random.seed(20)
+
+    ratings_matrix = np.array([[1 ,1, 0, 0,1],[1 ,0 ,1 ,0,1], [1 ,0, 0, 1,0]])
+    print('Ratings matrix:\n ',ratings_matrix, end='\n -------------------------------------\n')
+
+    test_ratings = np.array([[0 ,1, 0, 0,1],[1 ,0 ,1 ,0,0], [1 ,0, 0, 1,0]])
+    print('Test matrix:\n ',test_ratings, end='\n -------------------------------------\n')
+
+    evaluator = Evaluator(ratings_matrix, verbose=True)
+    prediction_matrix =np.array([[ 0.73,  0.03,  0.97,  0.47, 0.1],[ 0.21,  0.9,   0.65, 0.4 , 0.51],
+                                 [ 0.06 , 0.82,  0.8, 0.3,  0.56]])
+    print('Predction matrix:\n ',prediction_matrix, end='\n -------------------------------------\n')
+    rounded_predictions = utils.rounded_predictions(prediction_matrix)
+    print('Rounded Predction matrix:\n ',rounded_predictions, end='\n -------------------------------------\n')
+    evaluator.load_top_recommendations_2(100, prediction_matrix, test_ratings)
+    print('Top recomendation idx:\n',evaluator.recommendation_indices,end='\n -------------------------------------\n')
+
+    sorted_prediction_matrix=np.argsort(prediction_matrix, axis=1,)
+
+    recall_10 = evaluator.recall_at_x(10, prediction_matrix,ratings_matrix, rounded_predictions)
+    recall_50 = evaluator.recall_at_x(50, prediction_matrix, ratings_matrix, rounded_predictions)
+    recall_100 = evaluator.recall_at_x(100, prediction_matrix, ratings_matrix, rounded_predictions)
+    recall_200 = evaluator.recall_at_x(200, prediction_matrix, ratings_matrix, rounded_predictions)
+    recall = evaluator.calculate_recall(ratings=ratings_matrix, predictions=rounded_predictions)
+    ndcg_at_five = evaluator.calculate_ndcg(2, rounded_predictions)
+    print('ndcg@5 %f ' % ndcg_at_five)
+
+    ndcg_at_ten = evaluator.calculate_ndcg(10, rounded_predictions)
+    print('ndcg@10 %f ' % ndcg_at_ten)
+
+    ndcg_at_50 = evaluator.calculate_ndcg(50, rounded_predictions)
+    print('ndcg@50 %f ' % ndcg_at_50)
+
+    # print("         | Recall@10: {0:3.4f}".format(recall_10))
+    # print("         | Recall@50: {0:3.4f}".format(recall_50))
+    # print("         | Recall@100: {0:3.4f}".format(recall_100))
+    # print("         | Recall@200: {0:3.4f}".format(recall_200))
+    # print("         | Recall: {0:3.4f}".format(recall))
+    mrr_at_ten = evaluator.calculate_mrr(2, rounded_predictions)
+    print('mrr@10 %f ' % mrr_at_ten)
+    if verbos:
+        print('R_target')
+        print(ratings_matrix, end='\n -------------------------------------\n')
+        print('T')
+        print(test_ratings, end='\n -------------------------------------\n')
+        print('R_pred')
+        print(prediction_matrix,end='\n -------------------------------------\n')
+        print('R_pred sorted by item id')
+        print(sorted_prediction_matrix,end='\n -------------------------------------\n')
+        print('Rounded_predictions')
+        print(rounded_predictions, end='\n -------------------------------------\n')
+
+
+
+
+# def dcg_at_k(scores):
+#     assert scores
+#     return scores[0] + sum(sc / log(ind, 2) for sc, ind in zip(scores[1:], range(2, len(scores)+1)))
+
+def dcg_at_k(scores, method=1):
+    assert scores
+    if method ==0:
+        return scores[0] + sum(sc / log(ind, 2) for sc, ind in zip(scores[1:], range(2, len(scores) + 1)))
+    if method == 1:
+        return sum(sc / log(ind, 2) for sc, ind in zip(scores[:], range(2, len(scores) + 2)))
+
+
+def ndcg_at_k(predicted_scores, user_scores):
+    assert len(predicted_scores) == len(user_scores)
+    idcg = dcg_at_k(sorted(user_scores, reverse=True))
+    print('dcg {}, idcg {}'.format(dcg_at_k(predicted_scores),idcg))
+    return (dcg_at_k(predicted_scores) / idcg) if idcg > 0.0 else 0.0
+
+
+# class TestMetrics(unittest.TestCase):
+#
+#     def test_dcg_small(self):
+#         scores = [3, 2]
+#         self.assertAlmostEqual(dcg_at_k(scores), 5.0)
+#
+#
+#     def test_dcg_large(self):
+#         scores = [3, 2, 3, 0, 0, 1, 2, 2, 3, 0]
+#         self.assertAlmostEqual(dcg_at_k(scores), 9.6051177391888114)
+#
+#
+#     def test_ndcg(self):
+#         predicted1 = [.4, .1, .8]
+#         predicted2 = [.0, .1, .4]
+#         predicted3 = [.4, .1, .0]
+#         actual = [.8, .4, .1, .0]
+#         self.assertAlmostEqual(ndcg_at_k(predicted1, actual[:3]), 0.795, 3)
+#         self.assertAlmostEqual(ndcg_at_k(predicted2, actual[:3]), 0.279, 3)
+#         self.assertAlmostEqual(ndcg_at_k(predicted3, actual[:3]), 0.396, 3)
 
 def main():
     # batch_size = 1
@@ -682,13 +786,31 @@ def main():
     #         coord.request_stop()
     #         coord.join(threads)
     # test_4()
-    print('=============================================\n only test set')
-    n,m,k = 600,20000,20
-    verbos = False
-    test_top_recommendations(n,m,k,True,verbos)
-    print('=============================================\n Include train and test sets')
-    test_top_recommendations(n,m,k,False,verbos)
 
+
+    # print('=============================================\n only test set')
+
+    # for i in range(10):
+    #     print("iteration: %d" %i)
+    # print('=============================================\n Include train and test sets')
+    # test_top_recommendations(n,m,k,False,verbos)
+    #
+    n, m, k = 20, 16980, 200
+    verbos = False
+    print("\nRandom recommender")
+    test_random_recommender(n, m, k, True, verbos)
+
+    print("\nMetrics test")
+    test_metrics(verbos)
+
+    print("\nndcg test ")
+    actual = [[1,1],[1,1],[1,1]] # subset of a rating matrix
+    print('Actual')
+    print(actual)
+    r = [[0,0], [1, 0], [0, 0]] # subset of a rounded predations matrix
+    print('Rounded predictions')
+    print(r)
+    print(np.mean([ndcg_at_k(x, y) for x,y in zip(r,actual)]))
 
 if __name__ == '__main__':
     main()
