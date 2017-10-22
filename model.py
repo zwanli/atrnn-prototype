@@ -13,7 +13,8 @@ def bias_variable(shape, name):
     return tf.get_variable(name, shape, initializer=b_init)
 
 class Model():
-    def __init__(self, args, M, embed,confidence_matrix,train_filename,test_filename,enabel_dropout=False, reg_lambda=0.01):
+    def __init__(self, args, ratings, embed,features_matrix,
+                 tags_matrix, confidence_matrix, train_filename, test_filename, enabel_dropout=False, reg_lambda=0.01):
         self.args = args
         self.dataset = args.dataset
         if args.model == 'rnn':
@@ -26,8 +27,9 @@ class Model():
             raise Exception("model type not supported: {}".format(args.model))
         # n: number of users
         # m: number of items
-        self.n, self.m = M.shape
+        self.n, self.m = ratings.shape
         self.k = args.embedding_dim
+        self.training_samples_count = args.training_samples_count
         self.learning_rate = args.learning_rate
         self.maxlen = args.max_length
         self.reg_lambda = tf.constant(reg_lambda, dtype=tf.float32)
@@ -139,7 +141,10 @@ class Model():
 
 
         ## Attributes component
+        att_output = self.attribute_module(features_matrix,args.num_layers)
 
+        # Free some ram
+        del features_matrix
 
         # U matrix [num_users, embeddings_dim]
         self.U = weight_variable([self.n, self.k], 'U')
@@ -163,37 +168,50 @@ class Model():
 
         self.F = tf.add(self.V_embed,self.G)
 
+        self.F = tf.add(self.F,att_output)
+
         self.r_hat = tf.reduce_mean(tf.multiply(self.U_embed, self.F), reduction_indices=1)
 
         # self.r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.V_embed), reduction_indices=1)
         self.r_hat = tf.add(self.r_hat, self.U_bias_embed)
         self.r_hat = tf.add(self.r_hat, self.V_bias_embed,name="R_predicted")
 
+        # Tag prediction task
+        tags_loss = self.tag_module(tags_matrix,self.k)
+        # Free some ram
+        del tags_matrix
+
+        # Loss function
         self.MAE = tf.reduce_mean(tf.abs(tf.subtract(self.r, self.r_hat)))
-        self.l2_loss =tf.nn.l2_loss(tf.multiply(confidence,tf.subtract(self.r, self.r_hat)))
-
-        self.MSE = tf.losses.mean_squared_error(self.r, self.r_hat,weights=confidence)
-        self.RMSE = tf.sqrt(self.MSE)
-
+        self.l2_loss =tf.nn.l2_loss(tf.multiply(tf.subtract(self.r, self.r_hat)))
         self.reg = tf.add(tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.U)),
                           tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.V)))
         self.reg_loss = tf.add(self.l2_loss, self.reg)
 
+
+        self.MSE = tf.losses.mean_squared_error(self.r, self.r_hat,weights=confidence)
+        self.reg_loss = tf.add(self.l2_loss, tags_loss )
+
+        self.RMSE = tf.sqrt(self.MSE)
+
+
         self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
 
+        # In case of joint loss function
         self.joint_train_step = self.optimizer.minimize(self.reg_loss)
 
+        # In case of alternate learning method
         self.train_step_u = self.optimizer.minimize(self.reg_loss, var_list=[self.U, self.U_bias])
         self.train_step_v = self.optimizer.minimize(self.reg_loss, var_list=[self.V, self.V_bias])
-
         t_vars=tf.trainable_variables()
         gru_vars = [var for var in t_vars if 'gru_cell' in var.name]
         self.train_step_rnn = self.optimizer.minimize(self.reg_loss, var_list=[gru_vars])
 
+
         tf.summary.scalar("MSE", self.MSE)
         tf.summary.scalar("RMSE", self.RMSE)
-        tf.summary.scalar("MAE", self.MAE)
-        tf.summary.scalar("L2-Loss", self.l2_loss)
+        # tf.summary.scalar("MAE", self.MAE)
+        # tf.summary.scalar("L2-Loss", self.l2_loss)
         tf.summary.scalar("Reg-Loss", self.reg_loss)
 
         # add op for merging summary
@@ -221,17 +239,27 @@ class Model():
         self.eval_metrics = tf.summary.merge((recall_sum,recall_10_sum,recall_50_sum,recall_100_sum,recall_200_sum,
                                              ndcg_5_sum, ndcg_10_sum,mrr_10_sum))
 
-
-
         # add Saver ops
         self.saver = tf.train.Saver()
 
 
-    def attribute_compononet(self,input,n_layers,):
+    def attribute_module(self, features_matrix,  n_layers, ):
+        '''
+
+        :param input:
+        :param n_layers:
+        :return:
+        '''
         # Implementation of a simple MLP network with one hidden layer.
-        ## Deep matrix factorization model
-        self.features_matrix = tf.constant(input, dtype=tf.float32, shape=input.shape, name="attributes_matrix")
-        x_size = input.shape[1]
+        x_size = features_matrix.shape[1]
+
+        self.features_matrix = tf.constant(features_matrix, dtype=tf.float32, shape=features_matrix.shape, name="attributes_matrix")
+
+        # Attribute features vector
+        self.input_att = tf.nn.embedding_lookup(self.features_matrix, self.v_idx)
+        self.input_att = tf.Print(self.input_att, [tf.shape(self.input_att), self.input_att],
+                                message='Attributes', first_n=20, summarize=4)
+
         # Network Parameters
         # calculate the number of hidden units for each hidden layer
         # N_h = N_s / (alpha * (N_i + N_o))
@@ -239,29 +267,24 @@ class Model():
         # N_o = number of output neurons.
         # N_s = number of samples in training data set.
         # alpha = an arbitrary scaling factor usually 2-10.
-
         alpha = 2
         n_hidden_1 = int(self.training_samples_count / (alpha * (x_size + self.k)))  # 1st layer number of neurons
         n_hidden_2 = int(self.training_samples_count / (alpha * (x_size + self.k)))
         n_hidden_3 = int(self.training_samples_count / (alpha * (x_size + self.k)))  # 1st layer number of neurons
         y_size = self.k
 
-        #
-        self.input_att = tf.nn.embedding_lookup(self.features_matrix, self.v_idx)
-        self.input_att = tf.Print(self.input_att, [tf.shape(self.input_att), self.input_att],
-                                message='Attributes', first_n=20, summarize=4)
 
         with tf.variable_scope('Attributes_component_%d-layers' % (n_layers)):
 
             # Input layer, User side
             with tf.name_scope('U_input_layer'):
-                w_1 = weight_variable([x_size,n_hidden_1], 'W_1')
-                b_1 = bias_variable(n_hidden_1, 'B_1')
-                h_1 = tf.nn.relu(tf.add(tf.matmul(self.input_att, w_1), b_1))
+                w_input = weight_variable([x_size,n_hidden_1], 'W_input')
+                b_input = bias_variable(n_hidden_1, 'B_input')
+                h_1 = tf.nn.relu(tf.add(tf.matmul(self.input_att, w_input), b_input))
 
             #Hidden layers
-            for n in range(2,n_layers + 1):
-                if n == 2:
+            for n in range(1,n_layers + 1):
+                if n == 1:
                     # Hidden layer
                     with tf.name_scope('U_layer%d' % n):
                         w_h = weight_variable([n_hidden_1,n_hidden_2], 'W_%d' % n)
@@ -272,7 +295,7 @@ class Model():
                     with tf.name_scope('U_layer%d' % n):
                         w_h = weight_variable([n_hidden_2,n_hidden_3], 'W_%d' % n)
                         b_h = bias_variable(n_hidden_3, 'B_%d' % n)
-                        h_U_h = tf.nn.relu(tf.add(tf.matmul(h_h,w_h),b_h), 'h_%d' % n)
+                        h_h = tf.nn.relu(tf.add(tf.matmul(h_h,w_h),b_h), 'h_%d' % n)
             with tf.name_scope('output_layer'):
                 if n_layers > 2:
                     n_hidden_prev = n_hidden_3
@@ -280,9 +303,25 @@ class Model():
                     n_hidden_prev = n_hidden_2
                 w_U_out = weight_variable([n_hidden_prev, y_size], 'W_out')
                 b_U_out = bias_variable(y_size, 'B_out')
-                attribute_output = tf.nn.relu(tf.add(tf.matmul(h_U_h, w_U_out), b_U_out), 'Attributes_output')
+                attribute_output = tf.nn.relu(tf.add(tf.matmul(h_h, w_U_out), b_U_out), 'Attributes_output')
         return attribute_output
 
+    def tag_module(self,tags_matrix, embedding_dim):
+        with tf.device("/cpu:0"):
+            tags_matrix = tf.constant(tags_matrix, dtype=tf.int32, shape=tags_matrix.shape,
+                                     name='confidence')
+
+            tags_actual = tf.nn.embedding_lookup(tags_matrix, self.v_idx) # [batch_size, max_tags]
+
+            embedding_var = tf.get_variable(name="embedding", shape=[tags_matrix.shape[0], embedding_dim])
+            tags_embeddings = tf.nn.embedding_lookup(embedding_var, tags_actual) # [batch_size, max_tags, embeding_dim]
+
+            tags_probalities = tf.einsum('aij,aj->ai',tags_embeddings,self.F)
+
+            # todo: add downweights for predicting the unobserved tags
+
+            tags_loss = tf.losses.sigmoid_cross_entropy(tags_actual,tags_probalities,)
+        return tags_loss
 
 
 def get_inputs(filename,batch_size,test=False):
@@ -380,8 +419,6 @@ def get_input_test(filenames,batch_size):
 def get_input_dataset(train_filename,test_filename,batch_size):
     with tf.device("/cpu:0"):
         with tf.variable_scope('input'):
-            # test_filename = '/home/wanli/data/Extended_ctr/dummy_test_1.tfrecords'
-            # train_filename = '/home/wanli/data/Extended_ctr/dummy_train_1.tfrecords'
 
             # Creates a dataset that reads all of the examples from filenames.
             validation_dataset = tf.contrib.data.TFRecordDataset(test_filename)

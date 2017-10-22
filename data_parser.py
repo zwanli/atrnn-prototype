@@ -14,11 +14,12 @@ from nltk.tokenize import word_tokenize
 import itertools
 import sys
 import tensorflow as tf
-from prettytable import  PrettyTable
+from prettytable import PrettyTable
 from utils import _int64_feature
 from utils import _bytes_feature
 from utils import _parse_function
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -33,7 +34,7 @@ csv.field_size_limit(sys.maxsize)
 
 
 class DataParser(object):
-    def __init__(self,base_folder, dataset, papers_presentation, use_embeddings=False,**kwargs):
+    def __init__(self, base_folder, dataset, papers_presentation, use_embeddings=False, **kwargs):
         """
         Initializes the data parser given a dataset name
         """
@@ -51,7 +52,6 @@ class DataParser(object):
             print("Warning: Given dataset not known, setting to citeulike-a")
             self.dataset_folder = self.base_folder + '/citeulike_a_extended'
 
-
         if use_embeddings:
             self.use_pre_trained_embed = True
             if 'embed_dir' in kwargs.keys():
@@ -62,11 +62,10 @@ class DataParser(object):
             self.embeddings = None
             self.embed_word_to_id = {}
 
-
         self.raw_labels = None
-        #Papers are represented as vectors of strings
+        # Papers are represented as vectors of strings
         self.raw_data = None
-        #Papers are represented as vectors of word ids instead of strings
+        # Papers are represented as vectors of word ids instead of strings
         self.all_documents = {}
 
         self.paper_count = None
@@ -85,8 +84,6 @@ class DataParser(object):
         self.confidence_matrix = None
         self.process()
 
-
-
     def process(self):
         """
         Starts parsing the data and gets matrices ready for training
@@ -94,13 +91,14 @@ class DataParser(object):
         # self.raw_labels, self.raw_data = self.parse_paper_raw_data()
 
         self.ratings = self.generate_ratings_matrix()
-        self.raw_ratings= self.generate_raw_ratings_matrix()
+        self.raw_ratings = self.generate_raw_ratings_matrix()
         # self.build_document_word_matrix()
         # print("shape")
         # print(self.document_words.shape)
         if self.papers_presentation == 'attributes':
             self.feature_labels, self.feature_matrix = self.parse_paper_features()
             self.get_features_distribution()
+        self.tag_matrix = self.parse_tags()
         self.parse_authors()
 
     def build_document_word_matrix(self):
@@ -138,8 +136,9 @@ class DataParser(object):
         """
         Parses paper features
         """
-        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.dataset_folder, 'paper_info_processed.csv')
-        with open(path, "r",encoding='utf-8', errors='ignore') as f:
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.dataset_folder,
+                            'paper_info_processed.csv')
+        with open(path, "r", encoding='utf-8', errors='ignore') as f:
             reader = csv.reader(f, delimiter='\t')
             first_line = True
             feature_vec = []
@@ -148,25 +147,23 @@ class DataParser(object):
             labels_ids = []
             for line in reader:
                 if first_line:
-                    labels = []
+                    labels = [ 'pages', 'year', 'type_NaN', 'type_article',
+                                               'type_book', 'type_booklet', 'type_electronic', 'type_inbook',
+                                               'type_incollection', 'type_inproceedings', 'type_manual',
+                                               'type_mastersthesis', 'type_misc', 'type_phdthesis', 'type_proceedings',
+                                               'type_techreport', 'type_unpublished']
+
                     for j, entry in enumerate(line):
-                            if entry != 'citeulike_id':
-                                labels.append(entry)
-                                labels_ids.append(j)
+                        if entry in  labels:
+                            labels_ids.append(j)
                     row_length = len(labels_ids)
                     first_line = False
                     i += 1
                     continue
                 paper_id = line[0]
-                if line[1] != 'NaN':
-                    self.id_map[int(line[1])] = paper_id
-                if int(paper_id) != i:
-                    for _ in range(int(paper_id) - i):
-                        feature_vec.append(['\\N'] * row_length)
-                        i += 1
                 current_entry = []
                 for label_id in labels_ids:
-                    current_entry.append(line[label_id])
+                    current_entry.append(float(line[label_id]) )
                 feature_vec.append(current_entry)
                 i += 1
 
@@ -174,12 +171,17 @@ class DataParser(object):
             self.paper_count = len(feature_vec)
         return labels, np.asarray(feature_vec)
 
-
-    def feature_index(self,feature):
+    def feature_index(self, feature):
         for index, label in enumerate(self.feature_labels):
             if label == feature:
                 return index
         return -1
+
+    def get_feature_vector(self):
+        return self.feature_labels, self.feature_matrix
+
+    def get_feature_matrix(self):
+        return self.feature_matrix
 
     def get_features_distribution(self):
         # if self.papers_presentation == 'attributes':
@@ -193,9 +195,10 @@ class DataParser(object):
         # A dict that has the id of the missing token '\\N' for each attribute
         missing_value_id = {}
 
-        #Number of papers that have a value for each attribute
+        # Number of papers that have a value for each attribute
         att_count = {}
-        t = PrettyTable(['feature','# of unique values', '# of papers that have value','# of papers that have missing values'])
+        t = PrettyTable(
+            ['feature', '# of unique values', '# of papers that have value', '# of papers that have missing values'])
         for feature in self.feature_labels:
             uniqe_freq[feature] = np.unique(self.feature_matrix[:, self.feature_index(feature)], return_counts=True)
             missing_value_id[feature] = np.where(uniqe_freq[feature][0] == '\\N')
@@ -204,9 +207,10 @@ class DataParser(object):
                                  - (uniqe_freq[feature][1][missing_value_id[feature]]
                                     if len(missing_value_id[feature][0]) != 0 else 0)
 
-            t.add_row([feature,len(uniqe_freq[feature][0]),att_count[feature],(uniqe_freq[feature][1][missing_value_id[feature]]
-                                    if missing_value_id[feature][0] is not None else 0)])
-        print (t)
+            t.add_row([feature, len(uniqe_freq[feature][0]), att_count[feature],
+                       (uniqe_freq[feature][1][missing_value_id[feature]]
+                        if missing_value_id[feature][0] is not None else 0)])
+        print(t)
 
         att_per_paper = {}
         for paper in self.feature_matrix:
@@ -217,8 +221,8 @@ class DataParser(object):
         plt.xlabel("Value")
         plt.ylabel("Frequency")
 
-        #fig = plt.gcf()
-        plt.savefig('{0}attribute-per-paper-histogram_{1}'.format(self.dataset_folder+'/',self.dataset))
+        # fig = plt.gcf()
+        plt.savefig('{0}attribute-per-paper-histogram_{1}'.format(self.dataset_folder + '/', self.dataset))
         print('')
         # for feature in self.feature_labels:
         #     print('Number of unique {0} {1}, frequencies {2}'.format(feature,len(uniqe_freq[feature][0]), uniqe_freq[feature][1]))
@@ -237,10 +241,11 @@ class DataParser(object):
         return word, glove_id, embed
 
     def load_embeddings(self):
-        filename = os.path.join(self.dataset_folder,'{0}-embeddings-{1}-w2v.tfrecord'.format(self.dataset, self.embed_dim))
+        filename = os.path.join(self.dataset_folder,
+                                '{0}-embeddings-{1}-w2v.tfrecord'.format(self.dataset, self.embed_dim))
         print('Loading embeddings {0} ...'.format(filename))
-        unsorted_embeddings={}
-        word_id =0
+        unsorted_embeddings = {}
+        word_id = 0
         for record in tf.python_io.tf_record_iterator(filename):
             example = tf.train.Example()
             example.ParseFromString(record)
@@ -250,12 +255,11 @@ class DataParser(object):
             self.embed_vocab.append(word)
             unsorted_embeddings[word_id] = embed
             self.embed_word_to_id[word] = word_id
-            word_id +=1
-        self.embeddings =np.zeros([word_id,self.embed_dim], dtype=np.float32)
+            word_id += 1
+        self.embeddings = np.zeros([word_id, self.embed_dim], dtype=np.float32)
         for word_id in unsorted_embeddings:
             self.embeddings[word_id] = unsorted_embeddings[word_id]
         del unsorted_embeddings
-
 
     def load_glove_embeddings(self):
 
@@ -319,7 +323,7 @@ class DataParser(object):
         if self.dataset == 'citeulike-t':
             delimiter = '\t'
         documents = {}
-        with open(path, "r",encoding='utf-8', errors='ignore') as f:
+        with open(path, "r", encoding='utf-8', errors='ignore') as f:
             reader = csv.reader(f, delimiter=delimiter)
             first_line = True
             row_length = 0
@@ -332,8 +336,8 @@ class DataParser(object):
                 doc_id = int(line[0])
                 # for citeulike-a, it starts from 1, we need it to start from 0
                 if self.dataset == 'citeulike-a':
-                    doc_id -=1
-                documents[doc_id]=line[1]
+                    doc_id -= 1
+                documents[doc_id] = line[1]
                 # if self.dataset == 'citeulike-t':
                 #     for word in line[1].split(" "):
                 #         self.insert_word(word)
@@ -353,7 +357,7 @@ class DataParser(object):
         if self.use_pre_trained_embed:
             for doc_id in self.raw_data:
                 # tokens = self.raw_data[doc_id].split()
-                word_idx= [self.get_word_id(word) for word in self.raw_data[doc_id].split()]
+                word_idx = [self.get_word_id(word) for word in self.raw_data[doc_id].split()]
                 self.all_documents[doc_id] = word_idx
         # TODO: Get word ids when not using pre-trained word embeddings
         return self.all_documents
@@ -380,7 +384,7 @@ class DataParser(object):
     def parse_authors(self):
         if bool(self.id_map) == False:
             path = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.dataset_folder, 'paper_info.csv')
-            with open(path, "r",encoding='utf-8', errors='ignore') as f:
+            with open(path, "r", encoding='utf-8', errors='ignore') as f:
                 reader = csv.reader(f, delimiter='\t')
                 first_line = True
                 for line in reader:
@@ -390,7 +394,7 @@ class DataParser(object):
                     paper_id = line[0]
                     self.id_map[int(line[1])] = paper_id
         path = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.dataset_folder, 'authors.csv')
-        with open(path, "r",encoding='utf-8', errors='ignore') as f:
+        with open(path, "r", encoding='utf-8', errors='ignore') as f:
             reader = csv.reader(f, delimiter='\t')
             first_line = True
             for line in reader:
@@ -475,9 +479,6 @@ class DataParser(object):
         # empty space in the ram
         del self.raw_data
 
-    def get_feature_vector(self):
-        return self.feature_labels, self.feature_matrix
-
     def get_ratings_matrix(self):
         return self.ratings
 
@@ -490,12 +491,12 @@ class DataParser(object):
         else:
             return self.words_count
 
-    def split_warm_start_user(self,folds):
-        idx = np.arange(0,self.paper_count)
-        self.test_ratings = [[[] for u in range(self.user_count)]for x in range(folds)]
+    def split_warm_start_user(self, folds):
+        idx = np.arange(0, self.paper_count)
+        self.test_ratings = [[[] for u in range(self.user_count)] for x in range(folds)]
         self.train_ratings = [[[] for u in range(self.user_count)] for x in range(folds)]
-        items_frequency = np.sum(self.ratings, axis=0,dtype=int)
-        always_in_train=[]
+        items_frequency = np.sum(self.ratings, axis=0, dtype=int)
+        always_in_train = []
         for i, count in enumerate(items_frequency):
             if count < self.paper_count_threshold:
                 always_in_train.append(i)
@@ -504,9 +505,9 @@ class DataParser(object):
             # Shuffle all rated items indices
             np.random.seed(0)
             np.random.shuffle(rated_items_indices)
-            item_per_fold = len(rated_items_indices)/ folds
+            item_per_fold = len(rated_items_indices) / folds
             for fold in range(folds):
-                start = int( fold * item_per_fold)
+                start = int(fold * item_per_fold)
                 end = int((fold + 1) * item_per_fold)
                 if fold == folds - 1:
                     end = len(idx)
@@ -521,12 +522,12 @@ class DataParser(object):
                 u_test_indices.sort()
                 self.train_ratings[fold][user] = u_train_indices
                 self.test_ratings[fold][user] = u_test_indices
-        return self.train_ratings,self.test_ratings
+        return self.train_ratings, self.test_ratings
 
     def split_warm_start_item(self, folds):
-        #List of lists to store test ratings.
-        #A list of size fold, where each item is a list that contains a list of size paper_count
-        #It has the shape [folds,items,users]
+        # List of lists to store test ratings.
+        # A list of size fold, where each item is a list that contains a list of size paper_count
+        # It has the shape [folds,items,users]
         test_ratings_item = [[[] for i in range(self.paper_count)] for x in range(folds)]
         # List of lists to store train ratings.
         # A list of size fold, where each  item is a list that contains a list of size paper_count
@@ -534,11 +535,11 @@ class DataParser(object):
         items_with_users_bigger_folds = 0
         for item in range(self.paper_count):
             # List of users ids that rated the item
-            rated_items_indices = self.ratings[:,item].nonzero()[0]
-            #Check if the number of users who rated this item is less than the number of folds
+            rated_items_indices = self.ratings[:, item].nonzero()[0]
+            # Check if the number of users who rated this item is less than the number of folds
             if len(rated_items_indices) < folds:
                 for fold in range(folds):
-                    #Always add to train
+                    # Always add to train
                     train_ratings_item[fold][item] = rated_items_indices
             else:
                 items_with_users_bigger_folds += 1
@@ -547,12 +548,12 @@ class DataParser(object):
                 np.random.shuffle(rated_items_indices)
                 item_per_fold = len(rated_items_indices) / folds
                 for fold in range(folds):
-                    #calculate the start and the end of the split for each fold
+                    # calculate the start and the end of the split for each fold
                     start = int(fold * item_per_fold)
                     end = int((fold + 1) * item_per_fold)
                     if fold == folds - 1:
                         end = len(rated_items_indices)
-                    #indices of the users in test
+                    # indices of the users in test
                     item_test_indices = rated_items_indices[start:end]
 
                     # indices of the users in train
@@ -565,7 +566,7 @@ class DataParser(object):
                     train_ratings_item[fold][item] = item_train_indices
                     test_ratings_item[fold][item] = item_test_indices
 
-        print('Items w/ users bigger than {0}: {1}  '.format(folds,items_with_users_bigger_folds))
+        print('Items w/ users bigger than {0}: {1}  '.format(folds, items_with_users_bigger_folds))
         # A list of size fold, where each item is a list that contains a list of size user_count
         # It has the shape [folds,users,items]
         test_ratings_user = [[[] for i in range(self.user_count)] for x in range(folds)]
@@ -573,9 +574,9 @@ class DataParser(object):
         # A list of size fold, where each  item is a list that contains a list of size user_count
         train_ratings_user = [[[] for i in range(self.user_count)] for x in range(folds)]
 
-        #convert the train_ratings and test ratings from [fold,item,user] to [fold,user,item]
+        # convert the train_ratings and test ratings from [fold,item,user] to [fold,user,item]
         for fold in range(folds):
-            ratings = np.zeros((self.user_count, self.paper_count),dtype=np.int32)
+            ratings = np.zeros((self.user_count, self.paper_count), dtype=np.int32)
             for i, item in enumerate(train_ratings_item[fold]):
                 for user in item:
                     train_ratings_user[fold][user].append(i)
@@ -583,10 +584,11 @@ class DataParser(object):
                 for user in item:
                     test_ratings_user[fold][user].append(i)
 
-            #sort the items indices
+            # sort the items indices
             for user in range(self.user_count):
-                #Randomly sample a negative data example for each positive one
-                negative_idx =self.get_negative_samples(train_ratings_user[fold][user],test_ratings_user[fold][user],self.paper_count)
+                # Randomly sample a negative data example for each positive one
+                negative_idx = self.get_negative_samples(train_ratings_user[fold][user], test_ratings_user[fold][user],
+                                                         self.paper_count)
                 train_ratings_user[fold][user].extend(negative_idx)
                 train_ratings_user[fold][user].sort()
                 test_ratings_user[fold][user].sort()
@@ -597,45 +599,45 @@ class DataParser(object):
 
     def split_cold_start(self, folds):
         item_per_fold = self.paper_count / folds
-        idx = np.arange(0,self.paper_count)
+        idx = np.arange(0, self.paper_count)
         np.random.seed(0)
         np.random.shuffle(idx)
-        test_ratings = [[[] for u in range(self.user_count)]for x in range(folds)]
+        test_ratings = [[[] for u in range(self.user_count)] for x in range(folds)]
         train_ratings = [[[] for u in range(self.user_count)] for x in range(folds)]
-        items_count = np.sum(self.ratings, axis=0,dtype=int)
-        always_in_train=[]
+        items_count = np.sum(self.ratings, axis=0, dtype=int)
+        always_in_train = []
         for i, count in enumerate(items_count):
             if count < self.paper_count_threshold:
                 always_in_train.append(i)
         for fold in range(folds):
-            start = int(fold *item_per_fold)
-            end = int ((fold+1) *item_per_fold)
-            if fold == folds -1:
+            start = int(fold * item_per_fold)
+            end = int((fold + 1) * item_per_fold)
+            if fold == folds - 1:
                 end = len(idx)
             test_idx = idx[start:end]
             test_idx = [i for i in test_idx if i not in always_in_train]
             mask = np.ones(self.paper_count, dtype=bool)
             mask[[test_idx]] = False
             train_idx = idx[mask]
-            assert (len(test_idx)+len(train_idx) == self.paper_count)
+            assert (len(test_idx) + len(train_idx) == self.paper_count)
             for user in range(self.user_count):
                 rated_items_indices = self.ratings[user].nonzero()[0]
-                u_train_indices = np.intersect1d(train_idx,rated_items_indices)
-                u_test_indices = np.intersect1d(test_idx,rated_items_indices)
-                #Randomly sample a negative data example for each positive one
+                u_train_indices = np.intersect1d(train_idx, rated_items_indices)
+                u_test_indices = np.intersect1d(test_idx, rated_items_indices)
+                # Randomly sample a negative data example for each positive one
                 negative_idx = self.get_negative_samples(u_train_indices, u_test_indices, self.paper_count)
 
-                u_train_indices = np.concatenate((u_train_indices,negative_idx))
+                u_train_indices = np.concatenate((u_train_indices, negative_idx))
                 u_train_indices.sort()
                 u_test_indices.sort()
-                train_ratings[fold][user] =u_train_indices
-                test_ratings[fold][ user] =u_test_indices
+                train_ratings[fold][user] = u_train_indices
+                test_ratings[fold][user] = u_test_indices
         self.train_ratings = train_ratings
         self.test_ratings = test_ratings
-        return self.train_ratings,self.test_ratings
+        return self.train_ratings, self.test_ratings
 
-    def get_negative_samples(self,train_idx,test_idx,paper_count):
-        idx= np.arange(self.paper_count,dtype=np.int32)
+    def get_negative_samples(self, train_idx, test_idx, paper_count):
+        idx = np.arange(self.paper_count, dtype=np.int32)
         mask = np.ones(self.paper_count, dtype=bool)
         mask[[train_idx]] = False
         mask[[test_idx]] = False
@@ -644,10 +646,8 @@ class DataParser(object):
         np.random.shuffle(negative_idx)
         return negative_idx[:len(train_idx)]
 
-
-
-    def generate_batch_samples(self, batch_size,fold, train=True, validation=False, test=False):
-        ratings = np.zeros((self.user_count, self.paper_count),dtype=np.int32)
+    def generate_batch_samples(self, batch_size, fold, train=True, validation=False, test=False):
+        ratings = np.zeros((self.user_count, self.paper_count), dtype=np.int32)
 
         if test:
             ratings_ = self.test_ratings
@@ -655,8 +655,8 @@ class DataParser(object):
             ratings_ = self.train_ratings
 
         for i, u in enumerate(ratings_[fold]):
-                for v in u:
-                    ratings[i][v]=self.ratings[i,v]
+            for v in u:
+                ratings[i][v] = self.ratings[i, v]
 
         self.nonzero_u_idx = ratings.nonzero()[0]
         self.nonzero_v_idx = ratings.nonzero()[1]
@@ -679,9 +679,9 @@ class DataParser(object):
                 yield u_idx, v_idx, r, docs
             else:
                 yield u_idx[0], v_idx[0], r[0], docs[0]
-        # return True
+                # return True
 
-    def generate_samples(self,fold, train=True, validation=False, test=False):
+    def generate_samples(self, fold, train=True, validation=False, test=False):
         # ratings = np.zeros((self.user_count, self.paper_count),dtype=np.int32)
         #
         if test:
@@ -690,15 +690,15 @@ class DataParser(object):
             ratings_ = self.train_ratings
 
         for i, u in enumerate(ratings_[fold]):
-                for v in u:
-                    # ratings[i][v]=self.ratings[i,v]
-                    u_id = i
-                    v_id = v
-                    r = self.ratings[i,v]
-                    doc= np.array(self.all_documents[v_id])
-                    yield u_id, v_id, int(r), doc
+            for v in u:
+                # ratings[i][v]=self.ratings[i,v]
+                u_id = i
+                v_id = v
+                r = self.ratings[i, v]
+                doc = np.array(self.all_documents[v_id])
+                yield u_id, v_id, int(r), doc
 
-    def get_confidence_matrix(self,mode='default',**kwargs):
+    def get_confidence_matrix(self, mode='default', **kwargs):
         '''
 
         :param mode: { 'constant','only-positive', 'user-dependant' }
@@ -722,10 +722,44 @@ class DataParser(object):
                 print('alpha value is not provided, using default value %d ' % alpha)
             epsilon = 1e-8
             count_nonzero = np.count_nonzero(self.ratings, axis=1)
-            self.confidence_matrix = self.confidence_matrix .T *( 1 +  alpha * np.log(1 + count_nonzero/(epsilon)))
+            self.confidence_matrix = self.confidence_matrix.T * (1 + alpha * np.log(1 + count_nonzero / (epsilon)))
         else:
             print('Using default confidence mode, all negative and positive samples have confidence value 1  ')
 
         return self.confidence_matrix
 
+    def parse_tags(self):
+        """
+                Parses paper features
+                """
+        tags_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.dataset_folder,
+                                 'tags.dat')
 
+        with open(tags_file, "r", encoding='utf-8', errors='ignore') as f:
+            content = f.readlines()
+            tags = {}
+            for t in content:
+                t = t.strip()
+                if t in tags:
+                    tags[t] += 1
+                else:
+                    tags[t] = 1
+        tags_count = len(tags)
+        print('Tags vocaulary size %d' % len(tags))
+        item_tags_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.dataset_folder,
+                                      'item-tag.dat')
+        tags_matrix = np.zeros((self.paper_count, tags_count))
+        with open(item_tags_file, "r", encoding='utf-8', errors='ignore') as f:
+            reader = csv.reader(f, delimiter=' ')
+            i = 0
+            for line in reader:
+                count = line[0]
+                # if int(count) == 0:
+                #     print(i)
+                for j in range(1, int(count) + 1):
+                    tags_matrix[i][int(line[j])] = 1
+                i += 1
+        return tags_matrix
+
+    def get_tag_matrix(self):
+        return self.tag_matrix

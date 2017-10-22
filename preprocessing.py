@@ -240,7 +240,7 @@ def process_features(path,paper_count ):
     clean_file_path = path +'.cleaned'
     if os.path.exists(clean_file_path):
         with open(path, "r", encoding='utf-8', errors='ignore') as infile:
-            reader = csv.reader(infile, delimiter='\t')
+            reader = csv.reader(infile, delimiter=',')
             i = 0
             first_line = True
 
@@ -269,7 +269,7 @@ def process_features(path,paper_count ):
                     writer.writerow(line)
                     i += 1
                 if i != paper_count:
-                    for _ in range(int(paper_count) - i):
+                    for _ in range(int(paper_count - 1) - i):
                         empty_row = [str(i)]
                         empty_row.extend([null_token] * (row_length - 1))
                         # empty_row = '\t'.join(empty_row)
@@ -288,6 +288,10 @@ def process_features(path,paper_count ):
         if x == '-1':
             return null_token
         if is_number(x):
+            if x == 'NaN':
+                return null_token
+            x = float(x)
+            x = int(x)
             return x
         return null_token
 
@@ -295,7 +299,10 @@ def process_features(path,paper_count ):
         if is_number(x):
             if x == 'NaN':
                 return null_token
+            x = float(x)
             x = int(x)
+            if x == -1:
+                return null_token
             if x < 1000:
                 return null_token
             return now.year - x
@@ -318,7 +325,7 @@ def process_features(path,paper_count ):
                          converters=convert_func)
 
     # special case
-    df.year[df.year == -20058083] = null_token
+    # df.year[df.year == -20058083] = 2006
 
     # Filter values with frequency less than min_freq
     def filter(df, tofilter_list, min_freq):
@@ -475,10 +482,10 @@ def main():
 
     # #
     paper_count={'dummy': 1929, 'citeulike-a': 16980, 'citeulike-t': 25976 }
-    features_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), dataset_folder, 'paper_info.csv')
+    features_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), dataset_folder, 'papers_info_corrected_pages_years.csv')
 
     process_features(features_path, paper_count=paper_count[args.dataset])
     # # # get_features_distribution(labels, raw_features)
 
 if __name__ == '__main__':
-    main()
+     main()

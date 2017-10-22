@@ -36,7 +36,7 @@ def main():
                         help='directory to store checkpointed models')
     parser.add_argument('--rnn_size', type=int, default=200,
                         help='size of RNN hidden state')
-    parser.add_argument('--num_layers', type=int, default=2,
+    parser.add_argument('--num_layers', type=int, default=1,
                         help='number of layers in the RNN')
     parser.add_argument('--model', type=str, default='gru',
                         help='Choose the RNN cell type', choices=['rnn, gru, or lstm'])
@@ -232,7 +232,8 @@ def train(args):
         # #
         # # #####TEST AREA ###############
         args.training_samples_count = example_count_train
-        model = Model(args, parser.get_ratings_matrix(), parser.embeddings, confidence_matrix, path_training, path_test)
+        model = Model(args, parser.get_ratings_matrix(), parser.embeddings,parser.get_feature_matrix(),
+                      parser.get_tag_matrix(), confidence_matrix, path_training, path_test)
         train_writer = tf.summary.FileWriter(args.log_dir + '/{0}-train'.format(dir_prefix))
         # valid_writer = tf.summary.FileWriter(args.log_dir + '/{0}-validation'.format(time.strftime(dir_prefix)))
         test_writer = tf.summary.FileWriter(args.log_dir + '/{0}-test'.format(time.strftime(dir_prefix)))

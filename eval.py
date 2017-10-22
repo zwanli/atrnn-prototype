@@ -3,7 +3,7 @@ import tensorflow as tf
 import math
 from evaluator import Evaluator
 from model import get_inputs
-from model import  Model
+from model import Model
 from model import get_input_test
 from model import _parse_function
 from model import get_input_dataset
@@ -12,6 +12,8 @@ import time
 import utils
 from scipy.sparse import rand
 from math import log
+import os
+import csv
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -30,15 +32,15 @@ def eval_once(saver, summary_writer, top_k_op, summary_op):
       """
 
 
-def evaluate(sess,filename,ckpt_dir,rating_matrix,args,embeddings,test_writer,uv_matrices=None):
+def evaluate(sess, filename, ckpt_dir, rating_matrix, args, embeddings, test_writer, uv_matrices=None):
     def construct_feed(bi_hid_fw, bi_hid_bw):
         return {model.init_state_fw: bi_hid_fw, model.init_state_bw: bi_hid_bw}
 
-    evaluator = Evaluator(rating_matrix,verbose=True)
+    evaluator = Evaluator(rating_matrix, verbose=True)
 
     with tf.Graph().as_default() as g:
         saver = tf.train.import_meta_graph(ckpt_dir)
-        model = Model(args,rating_matrix,embeddings,filename,test=True)
+        model = Model(args, rating_matrix, embeddings, filename, test=True)
         # with tf.Session() as sess:
         ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
         if ckpt and ckpt.model_checkpoint_path:
@@ -105,15 +107,18 @@ def evaluate(sess,filename,ckpt_dir,rating_matrix,args,embeddings,test_writer,uv
         # eval_metrics = sess.run([model.eval_metrics], feed_dict=feed)
         # test_writer.add_summary(eval_metrics[0], step)
 
+
 def weight_variable(shape, name):
     initial = tf.truncated_normal(shape, stddev=0.001)
     return tf.Variable(initial, name=name)
 
+
 def bias_variable(shape, name):
     b_init = tf.constant_initializer(0.)
     return tf.get_variable(name, shape, initializer=b_init)
-class Model():
 
+
+class Model():
     def __init__(self, args, M, embed, train_filename, test_filename, reg_lambda=0.01, name='tr'):
         self.args = args
         self.dataset = args.dataset
@@ -125,8 +130,6 @@ class Model():
             cell_fn = rnn.BasicLSTMCell
         else:
             raise Exception("model type not supported: {}".format(args.model))
-
-
 
         outputs, init_ops = get_input_dataset(train_filename, test_filename, batch_size=self.batch_size)
         self.u_idx, self.v_idx, self.r, self.input_text, self.seq_lengths = outputs
@@ -178,8 +181,6 @@ class Model():
         bi_outputs = tf.concat(bi_outputs, 2)
         self.bi_output_state_fw, self.bi_output_state_bw = bi_output_state
 
-
-
         self.bi_output_state_fw = tf.identity(self.bi_output_state_fw, name='bi_state_fw')  # just to give it a name
         self.bi_output_state_bw = tf.identity(self.bi_output_state_bw, name='bi_state_bw')  # just to give it a name
 
@@ -211,7 +212,6 @@ class Model():
 
         # # G matrix for current batch, [batch_size, embeddings_dim]
         self.G_embed = tf.nn.embedding_lookup(self.RNN, self.v_idx)
-
 
         # U matrix [num_users, embeddings_dim]
         self.U = weight_variable([self.n, self.k], 'U')
@@ -264,7 +264,6 @@ class Model():
 
 
 def test_3():
-
     graph = tf.Graph()
     with graph.as_default():
         test_filename = '/home/wanli/data/Extended_ctr/dummy_train_0.tfrecords'
@@ -292,7 +291,6 @@ def test_3():
         training_init_op = iterator.make_initializer(training_dataset)
         validation_init_op = iterator.make_initializer(validation_dataset)
 
-
         u_idx_t, v_idx_t, r_t, input_t, lengths_t = next_element
         capacity = 1500
         batch_size = 128
@@ -303,7 +301,7 @@ def test_3():
             batch_size=batch_size, bucket_boundaries=bucket_boundaries, \
             capacity=capacity, dynamic_pad=True)
 
-        u_idx, v_idx, r, input_text,  seq_lengths = outputs_b
+        u_idx, v_idx, r, input_text, seq_lengths = outputs_b
 
     with tf.Session(graph=graph) as sess:
         tf.global_variables_initializer().run()
@@ -331,6 +329,7 @@ def test_3():
             coord.request_stop()
             coord.join(threads)
 
+
 def test_2():
     graph = tf.Graph()
     with graph.as_default():
@@ -357,8 +356,8 @@ def test_2():
             for step in range(2):
                 # Initialize the training dataset iterator
                 # tr_init = sess.run(model.tr)
-                sess.run(model.u_idx,feed_dict={model.handle: training_handle})
-                sess.run(model.u_idx,feed_dict={model.handle: validation_handle})
+                sess.run(model.u_idx, feed_dict={model.handle: training_handle})
+                sess.run(model.u_idx, feed_dict={model.handle: validation_handle})
             print('Done')
         except Exception as e:
             # Report exceptions to the coordinator.
@@ -368,6 +367,7 @@ def test_2():
         finally:
             coord.request_stop()
             coord.join(threads)
+
 
 def test_1():
     graph = tf.Graph()
@@ -394,7 +394,7 @@ def test_1():
                 # sess.partial_run(h,model.training_init_op)
                 # sess.partial_run(model.u_idx)
 
-                print ('Epoch {0}'.format(step))
+                print('Epoch {0}'.format(step))
                 sess.run(model.training_init_op)
                 sess.run(model.u_idx)
 
@@ -411,21 +411,23 @@ def test_1():
             coord.request_stop()
             coord.join(threads)
 
+
 def test_4():
-    is_handle =False
+    is_handle = False
     batch_size = 10
     with tf.device("/cpu:0"):
         with tf.variable_scope('input'):
             test_filename = '/home/wanli/data/Extended_ctr/dummy_test_1.tfrecords'
             train_filename = '/home/wanli/data/Extended_ctr/dummy_train_1.tfrecords'
             example_count_train = utils.num_samples(train_filename)
-            example_count_validation= utils.num_samples(test_filename)
+            example_count_validation = utils.num_samples(test_filename)
 
             nb_batches_train = int(math.ceil(example_count_train / batch_size))
 
-            print('Number of training batches {0}, number of samples {1}'.format(nb_batches_train,example_count_train))
+            print('Number of training batches {0}, number of samples {1}'.format(nb_batches_train, example_count_train))
             nb_batches_val = int(math.ceil(example_count_validation / batch_size))
-            print('Number of validation batches {0}, number of samples {1}'.format(nb_batches_val,example_count_validation))
+            print('Number of validation batches {0}, number of samples {1}'.format(nb_batches_val,
+                                                                                   example_count_validation))
             # Creates a dataset that reads all of the examples from filenames.
             validation_dataset = tf.contrib.data.TFRecordDataset(test_filename)
             training_dataset = tf.contrib.data.TFRecordDataset(train_filename)
@@ -453,17 +455,17 @@ def test_4():
 
             u_idx_t, v_idx_t, r_t, input_t, lengths_t = next_element
 
-            n,m = 50,1929
-            confidence_matrix = np.ones((n,m))
+            n, m = 50, 1929
+            confidence_matrix = np.ones((n, m))
 
-            confidence = tf.get_variable(name="confidence", shape=[n,m],
+            confidence = tf.get_variable(name="confidence", shape=[n, m],
                                          initializer=tf.constant_initializer(confidence_matrix), trainable=False)
             confidence_batch = tf.nn.embedding_lookup(confidence, ids=(u_idx_t, v_idx_t))
 
             confidence = tf.constant(confidence_matrix, dtype=tf.float32, shape=confidence_matrix.shape,
                                      name='confidence')
             u_v_idx = tf.stack([u_idx_t, v_idx_t], axis=1)
-            c_g = tf.gather_nd(confidence,u_v_idx)
+            c_g = tf.gather_nd(confidence, u_v_idx)
     with tf.Session() as sess:
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
@@ -474,7 +476,7 @@ def test_4():
                 # sess.partial_run(h,model.training_init_op)
                 # sess.partial_run(model.u_idx)
 
-                print ('Epoch {0}'.format(step))
+                print('Epoch {0}'.format(step))
                 print('Training .....................................')
                 sess.run(training_init_op)
                 for _ in range(nb_batches_train):
@@ -483,11 +485,11 @@ def test_4():
                     print(output)
                     # print(np.count_nonzero(np.asarray(output[:,0])))
 
-                # print('Validation .....................................')
-                # sess.run(validation_init_op)
-                # for _ in range(nb_batches_val):
-                #     input = sess.run(input_t)
-                #     print(input.shape)
+                    # print('Validation .....................................')
+                    # sess.run(validation_init_op)
+                    # for _ in range(nb_batches_val):
+                    #     input = sess.run(input_t)
+                    #     print(input.shape)
             print('Done')
         except Exception as e:
             print(e)
@@ -526,7 +528,7 @@ def test_random_recommender(n, m, k, only_on_test_set, verbos=False):
     # np.random.seed(20)
 
     # ratings_matrix=np.random.randint(2,size=(n,m))
-    ratings_matrix = rand(n, m,density=0.004)
+    ratings_matrix = rand(n, m, density=0.004)
     ratings_matrix.data[:] = 1
 
     ratings_matrix = ratings_matrix.toarray().astype(np.int32)
@@ -542,39 +544,38 @@ def test_random_recommender(n, m, k, only_on_test_set, verbos=False):
         nonzero_v_idx = ratings_matrix.nonzero()[1]
         u_idx = nonzero_u_idx[test_idx]
         v_idx = nonzero_v_idx[test_idx]
-        test_ratings = np.zeros(shape=(n,m))
+        test_ratings = np.zeros(shape=(n, m))
         test_ratings[u_idx, v_idx] = 1
     else:
-        test_ratings=ratings_matrix.copy()
+        test_ratings = ratings_matrix.copy()
     # np.random.seed(40)
 
-    U=np.random.randint(100, size=(n,k)) / 100
+    U = np.random.randint(100, size=(n, k)) / 100
     # print(U,end='\n -------------------------------------\n')
     # np.random.seed(30)
 
-    V=np.random.randint(100, size=(m,k)) / 100
+    V = np.random.randint(100, size=(m, k)) / 100
     # print(V,end='\n -------------------------------------\n')
     # np.random.seed(21)
 
-    rnn_output = np.random.randint(100, size=(m,k)) / 100
+    rnn_output = np.random.randint(100, size=(m, k)) / 100
     # print(rnn_output,end='\n -------------------------------------\n')
     evaluator = Evaluator(ratings_matrix, verbose=True)
 
     prediction_matrix = np.matmul(U, np.add(V, rnn_output).T)
-    sorted_prediction_matrix=np.argsort(prediction_matrix, axis=1,)
-
+    sorted_prediction_matrix = np.argsort(prediction_matrix, axis=1, )
 
     # prediction_matrix = np.add(prediction_matrix, np.reshape(U_b, [-1, 1]))
     # prediction_matrix = np.add(prediction_matrix, V_b)
     rounded_predictions = utils.rounded_predictions(prediction_matrix)
     #
-    n_top_recommednations= 200
+    n_top_recommednations = 200
     if only_on_test_set:
         evaluator.load_top_recommendations_2(n_top_recommednations, prediction_matrix, test_ratings)
     else:
         evaluator.new_load_top_recommendations(n_top_recommednations, prediction_matrix, test_ratings)
 
-    recall_10 = evaluator.recall_at_x(10, prediction_matrix,ratings_matrix, rounded_predictions)
+    recall_10 = evaluator.recall_at_x(10, prediction_matrix, ratings_matrix, rounded_predictions)
     recall_50 = evaluator.recall_at_x(50, prediction_matrix, ratings_matrix, rounded_predictions)
     # recall_100 = evaluator.recall_at_x(100, prediction_matrix, ratings_matrix, rounded_predictions)
     # recall_200 = evaluator.recall_at_x(200, prediction_matrix, ratings_matrix, rounded_predictions)
@@ -601,34 +602,35 @@ def test_random_recommender(n, m, k, only_on_test_set, verbos=False):
         print('T')
         print(test_ratings, end='\n -------------------------------------\n')
         print('R_pred')
-        print(prediction_matrix,end='\n -------------------------------------\n')
+        print(prediction_matrix, end='\n -------------------------------------\n')
         print('R_pred sorted by item id')
-        print(sorted_prediction_matrix,end='\n -------------------------------------\n')
+        print(sorted_prediction_matrix, end='\n -------------------------------------\n')
         print('Rounded_predictions')
         print(rounded_predictions, end='\n -------------------------------------\n')
 
-def test_metrics( verbos=False):
 
+def test_metrics(verbos=False):
     np.random.seed(20)
 
-    ratings_matrix = np.array([[1 ,1, 0, 0,1],[1 ,0 ,1 ,0,1], [1 ,0, 0, 1,0]])
-    print('Ratings matrix:\n ',ratings_matrix, end='\n -------------------------------------\n')
+    ratings_matrix = np.array([[1, 1, 0, 0, 1], [1, 0, 1, 0, 1], [1, 0, 0, 1, 0]])
+    print('Ratings matrix:\n ', ratings_matrix, end='\n -------------------------------------\n')
 
-    test_ratings = np.array([[0 ,1, 0, 0,1],[1 ,0 ,1 ,0,0], [1 ,0, 0, 1,0]])
-    print('Test matrix:\n ',test_ratings, end='\n -------------------------------------\n')
+    test_ratings = np.array([[0, 1, 0, 0, 1], [1, 0, 1, 0, 0], [1, 0, 0, 1, 0]])
+    print('Test matrix:\n ', test_ratings, end='\n -------------------------------------\n')
 
     evaluator = Evaluator(ratings_matrix, verbose=True)
-    prediction_matrix =np.array([[ 0.73,  0.03,  0.97,  0.47, 0.1],[ 0.21,  0.9,   0.65, 0.4 , 0.51],
-                                 [ 0.06 , 0.82,  0.8, 0.3,  0.56]])
-    print('Predction matrix:\n ',prediction_matrix, end='\n -------------------------------------\n')
+    prediction_matrix = np.array([[0.73, 0.03, 0.97, 0.47, 0.1], [0.21, 0.9, 0.65, 0.4, 0.51],
+                                  [0.06, 0.82, 0.8, 0.3, 0.56]])
+    print('Predction matrix:\n ', prediction_matrix, end='\n -------------------------------------\n')
     rounded_predictions = utils.rounded_predictions(prediction_matrix)
-    print('Rounded Predction matrix:\n ',rounded_predictions, end='\n -------------------------------------\n')
+    print('Rounded Predction matrix:\n ', rounded_predictions, end='\n -------------------------------------\n')
     evaluator.load_top_recommendations_2(100, prediction_matrix, test_ratings)
-    print('Top recomendation idx:\n',evaluator.recommendation_indices,end='\n -------------------------------------\n')
+    print('Top recomendation idx:\n', evaluator.recommendation_indices,
+          end='\n -------------------------------------\n')
 
-    sorted_prediction_matrix=np.argsort(prediction_matrix, axis=1,)
+    sorted_prediction_matrix = np.argsort(prediction_matrix, axis=1, )
 
-    recall_10 = evaluator.recall_at_x(10, prediction_matrix,ratings_matrix, rounded_predictions)
+    recall_10 = evaluator.recall_at_x(10, prediction_matrix, ratings_matrix, rounded_predictions)
     recall_50 = evaluator.recall_at_x(50, prediction_matrix, ratings_matrix, rounded_predictions)
     recall_100 = evaluator.recall_at_x(100, prediction_matrix, ratings_matrix, rounded_predictions)
     recall_200 = evaluator.recall_at_x(200, prediction_matrix, ratings_matrix, rounded_predictions)
@@ -655,13 +657,11 @@ def test_metrics( verbos=False):
         print('T')
         print(test_ratings, end='\n -------------------------------------\n')
         print('R_pred')
-        print(prediction_matrix,end='\n -------------------------------------\n')
+        print(prediction_matrix, end='\n -------------------------------------\n')
         print('R_pred sorted by item id')
-        print(sorted_prediction_matrix,end='\n -------------------------------------\n')
+        print(sorted_prediction_matrix, end='\n -------------------------------------\n')
         print('Rounded_predictions')
         print(rounded_predictions, end='\n -------------------------------------\n')
-
-
 
 
 # def dcg_at_k(scores):
@@ -670,7 +670,7 @@ def test_metrics( verbos=False):
 
 def dcg_at_k(scores, method=1):
     assert scores
-    if method ==0:
+    if method == 0:
         return scores[0] + sum(sc / log(ind, 2) for sc, ind in zip(scores[1:], range(2, len(scores) + 1)))
     if method == 1:
         return sum(sc / log(ind, 2) for sc, ind in zip(scores[:], range(2, len(scores) + 2)))
@@ -679,7 +679,7 @@ def dcg_at_k(scores, method=1):
 def ndcg_at_k(predicted_scores, user_scores):
     assert len(predicted_scores) == len(user_scores)
     idcg = dcg_at_k(sorted(user_scores, reverse=True))
-    print('dcg {}, idcg {}'.format(dcg_at_k(predicted_scores),idcg))
+    print('dcg {}, idcg {}'.format(dcg_at_k(predicted_scores), idcg))
     return (dcg_at_k(predicted_scores) / idcg) if idcg > 0.0 else 0.0
 
 
@@ -703,6 +703,148 @@ def ndcg_at_k(predicted_scores, user_scores):
 #         self.assertAlmostEqual(ndcg_at_k(predicted1, actual[:3]), 0.795, 3)
 #         self.assertAlmostEqual(ndcg_at_k(predicted2, actual[:3]), 0.279, 3)
 #         self.assertAlmostEqual(ndcg_at_k(predicted3, actual[:3]), 0.396, 3)
+
+def test_tags_module():
+    k = 2
+    tags_matrix = np.random.randint(2, size=(4, 3))
+
+
+    v_idx = [1, 2, 3]
+    tags_matrix = tf.constant(tags_matrix, dtype=tf.int32, shape=tags_matrix.shape,
+                              name='confidence')
+    tags_actual = tf.nn.embedding_lookup(tags_matrix, v_idx)  # [batch_size, max_tags]
+    embedding_var = tf.get_variable(name="embedding", shape=[tags_matrix.shape[1], k])
+    tags_embeddings = tf.nn.embedding_lookup(embedding_var, tags_actual)  # [batch_size, max_tags, embeding_dim]
+
+    f = np.random.randint(100, size=(len(v_idx), k)) / 100
+    f = tf.constant(f, dtype=tf.float32, shape=f.shape)
+    # f = tf.reshape(f,[tf.shape(f)[0],1,tf.shape(f)[1]])
+    tags_probalities = tf.einsum('aij,aj->ai', tags_embeddings, f)
+    #
+    # # todo: add downweights for predicting the unobserved tags
+    tags_loss = tf.losses.sigmoid_cross_entropy(tags_actual, tags_probalities)
+
+    tags_actual = tf.to_float(tags_actual)
+    tags_sigmoid = tf.nn.sigmoid(tags_probalities)
+    cross_entropy = -tf.reduce_mean(
+        ((tags_actual * tf.log(tags_sigmoid )) + ((1 - tags_actual) * tf.log(1 - tags_sigmoid ))),
+        name='xentropy')
+
+    sess = tf.InteractiveSession()
+    tf.global_variables_initializer().run()
+    print(tags_probalities.eval())
+    print(tags_actual.eval())
+    loss_1 = sess.run(tags_loss)
+    print(loss_1)
+    loss_2= cross_entropy.eval()
+    print(loss_2)
+    np.testing.assert_almost_equal(loss_1, loss_2)
+
+
+
+def test_attributes_module():
+    # Implementation of a simple MLP network with one hidden layer.
+    features_matrix = np.random.randint(2, size=(20, 10))
+    x_size = features_matrix.shape[1]
+
+    # features_matrix = tf.constant(features_matrix,shape=features_matrix.shape)
+    v_idx = [1, 2, 3]
+
+    features_matrix = tf.constant(features_matrix, dtype=tf.float32, shape=features_matrix.shape,
+                                  name="attributes_matrix")
+
+    # Attribute features vector
+    input_att = tf.nn.embedding_lookup(features_matrix, v_idx)
+    input_att = tf.Print(input_att, [tf.shape(input_att), input_att],
+                         message='Attributes', first_n=20, summarize=4)
+
+    # Network Parameters
+    # calculate the number of hidden units for each hidden layer
+    # N_h = N_s / (alpha * (N_i + N_o))
+    # N_i  = number of input neurons.
+    # N_o = number of output neurons.
+    # N_s = number of samples in training data set.
+    # alpha = an arbitrary scaling factor usually 2-10.
+    alpha = 5
+    training_samples_count = 340000
+    k = 200
+    n_layers = 2
+
+    n_hidden_1 = int(training_samples_count / (alpha * (x_size + k)))  # 1st layer number of neurons
+    n_hidden_2 = int(training_samples_count / ((alpha + 1) * (x_size + k)))
+    n_hidden_3 = int(training_samples_count / ((alpha + 2) * (x_size + k)))  # 1st layer number of neurons
+    y_size = k
+
+    with tf.variable_scope('Attributes_component_%d-layers' % (n_layers)):
+
+        # Input layer, User side
+        with tf.name_scope('U_input_layer'):
+            w_1 = weight_variable([x_size, n_hidden_1], 'W_1')
+            b_1 = bias_variable(n_hidden_1, 'B_1')
+            h_1 = tf.nn.relu(tf.add(tf.matmul(input_att, w_1), b_1))
+
+        # Hidden layers
+        for n in range(2, n_layers + 1):
+            if n == 2:
+                # Hidden layer
+                with tf.name_scope('U_layer%d' % n):
+                    w_h = weight_variable([n_hidden_1, n_hidden_2], 'W_%d' % n)
+                    b_h = bias_variable(n_hidden_2, 'B_%d' % n)
+                    h_h = tf.nn.relu(tf.add(tf.matmul(h_1, w_h), b_h), 'h_%d' % n)
+            else:
+                # Hidden layer
+                with tf.name_scope('U_layer%d' % n):
+                    w_h = weight_variable([n_hidden_2, n_hidden_3], 'W_%d' % n)
+                    b_h = bias_variable(n_hidden_3, 'B_%d' % n)
+                    h_h = tf.nn.relu(tf.add(tf.matmul(h_h, w_h), b_h), 'h_%d' % n)
+        with tf.name_scope('output_layer'):
+            if n_layers > 2:
+                n_hidden_prev = n_hidden_3
+            else:
+                n_hidden_prev = n_hidden_2
+            w_U_out = weight_variable([n_hidden_prev, y_size], 'W_out')
+            b_U_out = bias_variable(y_size, 'B_out')
+            attribute_output = tf.nn.relu(tf.add(tf.matmul(h_h, w_U_out), b_U_out), 'Attributes_output')
+
+    sess = tf.InteractiveSession()
+    tf.global_variables_initializer().run()
+    print(attribute_output.eval())
+    print(tf.shape(attribute_output).eval())
+
+    return attribute_output
+
+
+def test_parse_tags():
+    dataset_folder = '/home/wanli/data/Extended_ctr/citeulike_a_extended/'
+    tags_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), dataset_folder,
+                        'tags.dat')
+
+    with open(tags_file, "r", encoding='utf-8', errors='ignore') as f:
+        content = f.readlines()
+        tags = {}
+        for t in content:
+            t = t.strip()
+            if t in tags:
+                tags[t] += 1
+            else:
+                tags[t] = 1
+    tags_count = len(tags)
+    print('Tags vocaulary size %d' %len(tags))
+    item_tags_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), dataset_folder,
+                        'item-tag.dat')
+    paper_count = 16980
+    tags_matrix = np.zeros((paper_count, tags_count))
+    with open(item_tags_file, "r", encoding='utf-8', errors='ignore') as f:
+        reader = csv.reader(f, delimiter=' ')
+        i =0
+        for line in reader:
+            count = line[0]
+            # if int(count) == 0:
+            #     print(i)
+            for j in range(1,int(count)+1):
+                tags_matrix[i][int(line[j])] = 1
+            i += 1
+    return tags_matrix
 
 def main():
     # batch_size = 1
@@ -795,22 +937,28 @@ def main():
     # print('=============================================\n Include train and test sets')
     # test_top_recommendations(n,m,k,False,verbos)
     #
-    n, m, k = 20, 16980, 200
-    verbos = False
-    print("\nRandom recommender")
-    test_random_recommender(n, m, k, True, verbos)
+    # n, m, k = 20, 16980, 200
+    # verbos = False
+    # print("\nRandom recommender")
+    # test_random_recommender(n, m, k, True, verbos)
+    #
+    # print("\nMetrics test")
+    # test_metrics(verbos)
+    #
+    # print("\nndcg test ")
+    # actual = [[1,1],[1,1],[1,1]] # subset of a rating matrix
+    # print('Actual')
+    # print(actual)
+    # r = [[0,0], [1, 0], [0, 0]] # subset of a rounded predations matrix
+    # print('Rounded predictions')
+    # print(r)
+    # print(np.mean([ndcg_at_k(x, y) for x,y in zip(r,actual)]))
 
-    print("\nMetrics test")
-    test_metrics(verbos)
+    # test_tags_module()
+    test_parse_tags()
 
-    print("\nndcg test ")
-    actual = [[1,1],[1,1],[1,1]] # subset of a rating matrix
-    print('Actual')
-    print(actual)
-    r = [[0,0], [1, 0], [0, 0]] # subset of a rounded predations matrix
-    print('Rounded predictions')
-    print(r)
-    print(np.mean([ndcg_at_k(x, y) for x,y in zip(r,actual)]))
+    # test_attributes_module()
+
 
 if __name__ == '__main__':
     main()
