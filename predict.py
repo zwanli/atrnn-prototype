@@ -9,7 +9,7 @@ from data_parser import DataParser
 import utils
 from model import Model
 from utils import convert_to_tfrecords
-from eval import evaluate
+from test_cases import evaluate
 import math
 
 

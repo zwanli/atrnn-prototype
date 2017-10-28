@@ -99,7 +99,7 @@ class DataParser(object):
             self.feature_labels, self.feature_matrix = self.parse_paper_features()
             self.get_features_distribution()
         self.tag_matrix = self.parse_tags()
-        self.parse_authors()
+        # self.parse_authors()
 
     def build_document_word_matrix(self):
         path = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.dataset_folder, 'mult.dat')
@@ -646,6 +646,27 @@ class DataParser(object):
         np.random.shuffle(negative_idx)
         return negative_idx[:len(train_idx)]
 
+    def load_folds(self, data_directory, folds_num=5 ):
+        '''
+        :param data_directory: the folder that contains the folds rating matrices
+        :return:
+        '''
+        self.test_ratings = [[[] for u in range(self.user_count)] for x in range(folds_num)]
+        self.train_ratings = [[[] for u in range(self.user_count)] for x in range(folds_num)]
+        for fold in range(folds_num):
+            train_file = os.path.join(data_directory, "fold-{}".format(fold + 1),
+                                                         "train-fold_{}-users.dat".format(fold + 1))
+            with open(train_file, 'r') as f:
+                for user_id, line in enumerate(f):
+                    self.train_ratings[fold][user_id] = np.array(line.split()[1:]).astype(int).tolist()
+
+            test_file = os.path.join(data_directory, "fold-{}".format(fold + 1),
+                                                         "test-fold_{}-users.dat".format(fold + 1))
+            with open(test_file, 'r') as f:
+                for user_id, line in enumerate(f):
+                    self.test_ratings[fold][user_id] = np.array(line.split()[1:]).astype(int).tolist()
+
+
     def generate_batch_samples(self, batch_size, fold, train=True, validation=False, test=False):
         ratings = np.zeros((self.user_count, self.paper_count), dtype=np.int32)
 
@@ -681,7 +702,7 @@ class DataParser(object):
                 yield u_idx[0], v_idx[0], r[0], docs[0]
                 # return True
 
-    def generate_samples(self, fold, train=True, validation=False, test=False):
+    def generate_samples(self, fold, train=True, test=False):
         # ratings = np.zeros((self.user_count, self.paper_count),dtype=np.int32)
         #
         if test:
@@ -704,7 +725,7 @@ class DataParser(object):
         :param mode: { 'constant','only-positive', 'user-dependant' }
         :return:
         '''
-        self.confidence_matrix = np.ones((self.ratings.shape))
+        self.confidence_matrix = np.zeros((self.ratings.shape))
         if mode == 'constant':
             if 'alpha' in kwargs and 'beta' in kwargs:
                 self.confidence_matrix[self.ratings == 1] = kwargs['alpha']
@@ -722,7 +743,8 @@ class DataParser(object):
                 print('alpha value is not provided, using default value %d ' % alpha)
             epsilon = 1e-8
             count_nonzero = np.count_nonzero(self.ratings, axis=1)
-            self.confidence_matrix = self.confidence_matrix.T * (1 + alpha * np.log(1 + count_nonzero / (epsilon)))
+            self.confidence_matrix = self.confidence_matrix.T + (1 + alpha * np.log(1 + count_nonzero / (epsilon)))
+            self.confidence_matrix= self.confidence_matrix.T
         else:
             print('Using default confidence mode, all negative and positive samples have confidence value 1  ')
 

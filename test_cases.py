@@ -846,6 +846,11 @@ def test_parse_tags():
             i += 1
     return tags_matrix
 
+from Recommender_evaluator.lib import evaluator
+def test_evaluator():
+    evaluator.main()
+
+
 def main():
     # batch_size = 1
     capacity = 1500

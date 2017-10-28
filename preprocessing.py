@@ -255,8 +255,8 @@ def process_features(path,paper_count ):
                     if len(line) > row_length:
                         line[row_length] = ' '.join(line[row_length-1:]).replace('\t', ' ')
                         line = line[:row_length]
-                    paper_id = line[0]
-                    if int(paper_id) != i:
+                    paper_id = int(line[0]) - 1
+                    if paper_id != i and int(paper_id) != paper_count:
                         for _ in range(int(paper_id) - i):
                             empty_row = [str(i)]
                             empty_row.extend([null_token] * (row_length-1))
@@ -268,7 +268,8 @@ def process_features(path,paper_count ):
                             line[j] = null_token
                     writer.writerow(line)
                     i += 1
-                if i != paper_count:
+                if i < paper_count:
+                    # todo: check the pape count
                     for _ in range(int(paper_count - 1) - i):
                         empty_row = [str(i)]
                         empty_row.extend([null_token] * (row_length - 1))
@@ -378,8 +379,7 @@ def process_features(path,paper_count ):
     # add 'citeulike_id' column
     df_normalized = df_normalized.assign(citeulike_id=df.citeulike_id.values)
 
-    outfile = os.path.splitext(path)[0]+'_processed.csv'
-
+    outfile = os.path.join(os.path.dirname(path),'paper_info_processed.csv')
     df_normalized.to_csv(outfile, sep='\t', na_rep='' )
     print('Processed features saved to %s' % outfile)
 
