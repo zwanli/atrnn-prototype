@@ -436,12 +436,12 @@ def get_features_distribution(feature_labels, feature_matrix):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default='/home/wanli/data/Extended_ctr',
+    parser.add_argument('--data_dir', type=str, default='~/data/Extended_ctr',
                         help='data directory containing input.txt')
     parser.add_argument("--dataset", "-d", type=str, default='citeulike-a',
                         help="Which dataset to use", choices=['dummy', 'citeulike-a', 'citeulike-t'])
-    parser.add_argument('--embedding_dir', type=str, default='/home/wanli/data/cbow_w2v',
-                        help='GloVe embedding directory containing embeddings file')
+    parser.add_argument('--embedding_dir', type=str, default='~/data/cbow_w2v',
+                        help='Directory containing embeddings file')
     parser.add_argument('--embedding_dim', type=int, default=200,
                         help='dimension of the embeddings', choices=['50', '100', '200', '300'])
     args = parser.parse_args()
@@ -461,24 +461,24 @@ def main():
         print("File {0} doesn't exist".format(raw_data_path))
         raise
 
-    # use_w2v = False
-    # _, embed_dir= ntpath.split(args.embedding_dir)
-    # if (embed_dir == 'cbow_w2v'):
-    #     use_w2v = True
-    # load_embeddings(args.embedding_dir,args.embedding_dim,keep_embed=True,w2v=use_w2v)
-    #
-    # process_documents(raw_data_path,args.dataset)
-    #
-    # embeddings_path = os.path.join(dataset_folder, '{0}-embeddings-{1}-{2}.tfrecord'.
-    #                                format(args.dataset,args.embedding_dim,'w2v' if use_w2v else 'glove'))
-    # save_embeddings(embeddings_path)
-    #
-    # print('Raw data vocabulary size {0}, frequency {1}'.format(len(vocab), sum(vocab.values())))
-    # print('Processed data vocabulary size {0}, frequency {1}'.format(len(filtered_vocabulary),
-    #                                                                  sum(filtered_vocabulary.values())))
-    # print('# of unique unknown words {0}, frequency of unknown words {1}'
-    #       .format(len(unknown_words),sum(unknown_words.values())))
-    # print('Numbers frequency {0}'.format(numbers_freq))
+    use_w2v = False
+    _, embed_dir= ntpath.split(args.embedding_dir)
+    if (embed_dir == 'cbow_w2v'):
+        use_w2v = True
+    load_embeddings(args.embedding_dir,args.embedding_dim,keep_embed=True,w2v=use_w2v)
+
+    process_documents(raw_data_path,args.dataset)
+
+    embeddings_path = os.path.join(dataset_folder, '{0}-embeddings-{1}-{2}.tfrecord'.
+                                   format(args.dataset,args.embedding_dim,'w2v' if use_w2v else 'glove'))
+    save_embeddings(embeddings_path)
+
+    print('Raw data vocabulary size {0}, frequency {1}'.format(len(vocab), sum(vocab.values())))
+    print('Processed data vocabulary size {0}, frequency {1}'.format(len(filtered_vocabulary),
+                                                                     sum(filtered_vocabulary.values())))
+    print('# of unique unknown words {0}, frequency of unknown words {1}'
+          .format(len(unknown_words),sum(unknown_words.values())))
+    print('Numbers frequency {0}'.format(numbers_freq))
 
     # #
     paper_count={'dummy': 1929, 'citeulike-a': 16980, 'citeulike-t': 25976 }

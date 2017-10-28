@@ -20,11 +20,11 @@ tf.set_random_seed(RANDOM_SEED)
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default='/home/wanli/data/Extended_ctr',
+    parser.add_argument('--data_dir', type=str, default='~/data/Extended_ctr',
                         help='data directory containing input.txt')
     parser.add_argument("--dataset", "-d", type=str, default='dummy',
                         help="Which dataset to use", choices=['dummy', 'citeulike-a', 'citeulike-t'])
-    parser.add_argument('--embedding_dir', type=str, default='/home/wanli/data/cbow_w2v/',
+    parser.add_argument('--embedding_dir', type=str, default='~/data/cbow_w2v/',
                         help='GloVe embedding directory containing embeddings file')
     parser.add_argument('--embedding_dim', type=int, default=200,
                         help='dimension of the embeddings', choices=['50', '100', '200', '300'])
