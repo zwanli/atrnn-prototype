@@ -140,6 +140,7 @@ class Model():
             self.update_rnn_output = tf.scatter_update(self.RNN, self.v_idx, self.G)
 
 
+
         ## Attributes component
         att_output = self.attribute_module(features_matrix,args.num_layers)
 
@@ -175,6 +176,14 @@ class Model():
         # self.r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.V_embed), reduction_indices=1)
         self.r_hat = tf.add(self.r_hat, self.U_bias_embed)
         self.r_hat = tf.add(self.r_hat, self.V_bias_embed,name="R_predicted")
+
+        # Update predicted ratings matrix
+        with tf.device("/cpu:0"):
+            # RNN output [num_items, embedding_dim]
+            self.predicted_matrix = tf.get_variable(shape=[self.n, self.m], name='Predicted_ratings', trainable=False, dtype=tf.float32
+                                       , initializer=tf.constant_initializer(0.))
+            self.update_predicted_matrix = tf.scatter_nd_update(self.predicted_matrix,
+                                                             indices=u_v_idx,updates=self.r_hat)
 
         # Tag prediction task
         # tags_loss = self.tag_module(tags_matrix,self.k)

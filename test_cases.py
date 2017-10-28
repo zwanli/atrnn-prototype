@@ -851,6 +851,40 @@ def test_evaluator():
     evaluator.main()
 
 
+def test_tf_scatter_update():
+    import tensorflow as tf
+
+    g = tf.Graph()
+    with g.as_default():
+        a = tf.Variable(initial_value=[[0, 0, 0, 0], [0, 0, 0, 0]])
+        v = tf.constant([0,1])
+        u = tf.constant([0,1])
+        u_v_idx = tf.stack([u, v], axis=1)
+        b = tf.scatter_nd_update(a, u_v_idx, [5,3])
+
+        # data = tf.Variable([[1, 2, 3, 4, 5], [6, 7, 8, 9, 0], [1, 2, 3, 4, 5]])
+        # row = tf.gather(data, 2)
+        # new_row = tf.concat([row[:2], tf.constant([0]), row[3:]], axis=0)
+        # sparse_update = tf.scatter_update(data, tf.constant(2), new_row)
+
+    with tf.Session(graph=g) as sess:
+        sess.run(tf.global_variables_initializer())
+        print(sess.run(a ))
+        print('----------')
+        print(sess.run(b))
+        print('----------')
+
+        print(sess.run(u_v_idx))
+        # print (sess.run(data))
+        # print('----------')
+        # print (sess.run(row))
+        # print('----------')
+        #
+        # print(sess.run(new_row))
+        #
+        # print('----------')
+        # print(sess.run(sparse_update))
+
 def main():
     # batch_size = 1
     capacity = 1500
@@ -960,10 +994,11 @@ def main():
     # print(np.mean([ndcg_at_k(x, y) for x,y in zip(r,actual)]))
 
     # test_tags_module()
-    test_parse_tags()
+    # test_parse_tags()
 
     # test_attributes_module()
 
+    test_tf_scatter_update()
 
 if __name__ == '__main__':
     main()

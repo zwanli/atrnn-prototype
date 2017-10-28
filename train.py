@@ -20,11 +20,11 @@ tf.set_random_seed(RANDOM_SEED)
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default='~/data/Extended_ctr',
+    parser.add_argument('--data_dir', type=str, default='/home/wanli/data/Extended_ctr',
                         help='data directory containing input.txt')
     parser.add_argument("--dataset", "-d", type=str, default='dummy',
                         help="Which dataset to use", choices=['dummy', 'citeulike-a', 'citeulike-t'])
-    parser.add_argument('--embedding_dir', type=str, default='~/data/cbow_w2v/',
+    parser.add_argument('--embedding_dir', type=str, default='/home/wanli/data/cbow_w2v/',
                         help='GloVe embedding directory containing embeddings file')
     parser.add_argument('--embedding_dim', type=int, default=200,
                         help='dimension of the embeddings', choices=['50', '100', '200', '300'])
@@ -95,16 +95,6 @@ def num_samples(path):
         example_proto.ParseFromString(record)
         c += 1
     return c
-
-
-def load_samples_count(fold):
-    return {
-        1: (163159, 41827),
-        2: (163924, 41062),
-        3: (163805, 41181),
-        4: (164616, 40370),
-        5: (164440, 40546)
-    }[fold]
 
 
 def process_input(args, parser):
@@ -187,12 +177,31 @@ def process_input(args, parser):
             print('Total number of test  samples in fold {0}: {1}'.format(fold, count_test))
             sample_count[fold] = (count_tr, count_test)
         else:
-            sample_count[fold] = load_samples_count(fold)
-            print('Total number of train samples in fold {0}: {1}'.format(fold, load_samples_count(fold)[0]))
-            print('Total number of test  samples in fold {0}: {1}'.format(fold, load_samples_count(fold)[1]))
+            sample_count[fold] = load_samples_count(fold, args.split)
+            print('Total number of train samples in fold {0}: {1}'.format(fold, load_samples_count(fold, args.split)[0]))
+            print('Total number of test  samples in fold {0}: {1}'.format(fold, load_samples_count(fold,  args.split)[1]))
 
     print('Finished parsing the input')
     return folds_paths, sample_count
+
+
+def load_samples_count(fold, split_mode):
+    if split_mode == 'cold':
+        return {
+            1: (163159, 41827),
+            2: (163924, 41062),
+            3: (163805, 41181),
+            4: (164616, 40370),
+            5: (164440, 40546)
+        }[fold]
+    else:
+        return {
+            1: (163159, 41827),
+            2: (163924, 41062),
+            3: (163805, 41181),
+            4: (164616, 40370),
+            5: (164440, 40546)
+        }[fold]
 
 
 def train(args):
@@ -290,13 +299,14 @@ def train(args):
 
                 fetches = [model.joint_train_step,
                            model.update_rnn_output,
-                           model.r_hat,
+                           # model.U, model.V, model.RNN, model.U_bias, model.V_bias,
+                           model.update_predicted_matrix,
                            model.bi_output_state_fw, model.bi_output_state_bw, model.H,
                            model.RMSE, model.MAE, model.summary_op]
                 start = time.time()
 
                 for batch in range(nb_batches_train):
-                    # for batch in range(2):
+                # for batch in range(2):
                     _, _, prediction_matrix, bi_out_fw, bi_out_bw, final_state, rmse, mae, summary_str = \
                         sess.run(fetches, feed_dict=feed_dict)
                     # print every 500 iteration
@@ -320,10 +330,15 @@ def train(args):
                         init_state = sess.run(model.initial_state)
                         # don't dropout
                         feed_dict = construct_feed(test_bi_fw, test_bi_bw, 0, 0, 0)
+                        # for batch in range(2):
                         for batch in range(nb_batches_val):
                             rmse_test, mae_test, summary_str = sess.run(
                                 [model.RMSE, model.MAE, model.summary_op], feed_dict=feed_dict)
                             test_writer.add_summary(summary_str, global_step=(step * nb_batches_val + batch))
+                    # prediction_matrix = np.matmul(U, np.add(V, rnn_output).T)
+                    # prediction_matrix = np.add(prediction_matrix, np.reshape(U_b, [-1, 1]))
+                    # prediction_matrix = np.add(prediction_matrix, V_b)
+
                     rounded_predictions = utils.rounded_predictions(prediction_matrix)
                     evaluator.load_top_recommendations_2(200, prediction_matrix, test_ratings)
                     recall_10 = evaluator.recall_at_x(10, prediction_matrix, parser.ratings, rounded_predictions)
@@ -366,9 +381,8 @@ def train(args):
                 bi_state_fw = bi_out_fw
                 bi_state_bw = bi_out_bw
 
-                # todo: fix the path
-                predicted_ratings_file= os.path.join(os.path.dirname(os.path.dirname(path_training)),'score-%d.npy' % step)
-                np.save(predicted_ratings_file, prediction_matrix)
+            predicted_ratings_file= os.path.join(os.path.dirname(os.path.dirname(path_training)),'score.npy')
+            np.save(predicted_ratings_file, prediction_matrix)
 
             model.saver.save(sess, args.log_dir + "/{0}model.ckpt".format(time.strftime(dir_prefix)))
             print('Best test rmse:', best_test_rmse, 'Best test mae', best_test_mae, sep=' ')

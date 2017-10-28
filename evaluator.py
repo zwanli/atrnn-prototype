@@ -359,7 +359,9 @@ class Evaluator(object):
                 # print('ndcg for user {0}: {1}'.format(user, dcg / idcg))
                 ndcgs.append(dcg / idcg)
             if self._verbose:
-                print('User {0},# recomendations {1} dcg {2:.3}, idcg {3:.3}, ndcg {4:.3}'.format(user, len(self.recommendation_indices[user]), dcg, idcg, (dcg/idcg)))
+                if user < 4 :
+                    print('User {0},# recomendations {1} dcg {2:.3}, idcg {3:.3}, ndcg {4:.3}'
+                          .format(user, len(self.recommendation_indices[user]), dcg, idcg, (dcg/idcg if idcg != 0 else 0.0 )))
 
                 # else:
             #     ndcgs.append(0.0)
