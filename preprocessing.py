@@ -444,6 +444,8 @@ def main():
                         help='Directory containing embeddings file')
     parser.add_argument('--embedding_dim', type=int, default=200,
                         help='dimension of the embeddings', choices=['50', '100', '200', '300'])
+    parser.add_argument('--mode', type=str, default='all',
+                        help='Choose what to process, either documents or attributes, or all', choices=['a', 'd', 'all'])
     args = parser.parse_args()
 
     if args.dataset == 'citeulike-a':
@@ -456,36 +458,37 @@ def main():
         print("Warning: Given dataset not known, setting to dummy")
         dataset_folder = args.data_dir + '/citeulike_a_extended'
 
-    raw_data_path = os.path.join(dataset_folder, 'raw-data.csv')
-    if not os.path.exists(raw_data_path):
-        print("File {0} doesn't exist".format(raw_data_path))
-        raise
+    if args.mode == 'all' or args.mode == 'd':
+        raw_data_path = os.path.join(dataset_folder, 'raw-data.csv')
+        if not os.path.exists(raw_data_path):
+            print("File {0} doesn't exist".format(raw_data_path))
+            raise
 
-    use_w2v = False
-    _, embed_dir= ntpath.split(args.embedding_dir)
-    if (embed_dir == 'cbow_w2v'):
-        use_w2v = True
-    load_embeddings(args.embedding_dir,args.embedding_dim,keep_embed=True,w2v=use_w2v)
+        use_w2v = False
+        _, embed_dir= ntpath.split(args.embedding_dir)
+        if (embed_dir == 'cbow_w2v'):
+            use_w2v = True
+        load_embeddings(args.embedding_dir,args.embedding_dim,keep_embed=True,w2v=use_w2v)
 
-    process_documents(raw_data_path,args.dataset)
+        process_documents(raw_data_path,args.dataset)
 
-    embeddings_path = os.path.join(dataset_folder, '{0}-embeddings-{1}-{2}.tfrecord'.
-                                   format(args.dataset,args.embedding_dim,'w2v' if use_w2v else 'glove'))
-    save_embeddings(embeddings_path)
+        embeddings_path = os.path.join(dataset_folder, '{0}-embeddings-{1}-{2}.tfrecord'.
+                                       format(args.dataset,args.embedding_dim,'w2v' if use_w2v else 'glove'))
+        save_embeddings(embeddings_path)
 
-    print('Raw data vocabulary size {0}, frequency {1}'.format(len(vocab), sum(vocab.values())))
-    print('Processed data vocabulary size {0}, frequency {1}'.format(len(filtered_vocabulary),
-                                                                     sum(filtered_vocabulary.values())))
-    print('# of unique unknown words {0}, frequency of unknown words {1}'
-          .format(len(unknown_words),sum(unknown_words.values())))
-    print('Numbers frequency {0}'.format(numbers_freq))
+        print('Raw data vocabulary size {0}, frequency {1}'.format(len(vocab), sum(vocab.values())))
+        print('Processed data vocabulary size {0}, frequency {1}'.format(len(filtered_vocabulary),
+                                                                         sum(filtered_vocabulary.values())))
+        print('# of unique unknown words {0}, frequency of unknown words {1}'
+              .format(len(unknown_words),sum(unknown_words.values())))
+        print('Numbers frequency {0}'.format(numbers_freq))
 
-    # #
-    paper_count={'dummy': 1929, 'citeulike-a': 16980, 'citeulike-t': 25976 }
-    features_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), dataset_folder, 'papers_info_corrected_pages_years.csv')
-
-    process_features(features_path, paper_count=paper_count[args.dataset])
-    # # # get_features_distribution(labels, raw_features)
+    if args.mode == 'a' or args.mode == 'all':
+        paper_count={'dummy': 1929, 'citeulike-a': 16980, 'citeulike-t': 25976 }
+        features_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), dataset_folder, 'papers_info_corrected_pages_years.csv')
+    
+        process_features(features_path, paper_count=paper_count[args.dataset])
+        # # # get_features_distribution(labels, raw_features)
 
 if __name__ == '__main__':
      main()
