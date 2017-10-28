@@ -238,7 +238,7 @@ def process_features(path,paper_count ):
     now = datetime.datetime.now()
 
     clean_file_path = path +'.cleaned'
-    if os.path.exists(clean_file_path):
+    if not os.path.exists(clean_file_path):
         with open(path, "r", encoding='utf-8', errors='ignore') as infile:
             reader = csv.reader(infile, delimiter=',')
             i = 0
@@ -486,7 +486,7 @@ def main():
     if args.mode == 'a' or args.mode == 'all':
         paper_count={'dummy': 1929, 'citeulike-a': 16980, 'citeulike-t': 25976 }
         features_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), dataset_folder, 'papers_info_corrected_pages_years.csv')
-    
+
         process_features(features_path, paper_count=paper_count[args.dataset])
         # # # get_features_distribution(labels, raw_features)
 
