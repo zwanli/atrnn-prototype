@@ -126,7 +126,7 @@ def process_input(args, parser):
     folds_paths = {}
 
     split_folder = os.path.join(dataset_folder, '{0}'.format(
-        'in-matrix-item_folds' if args.split == 'warm' else '/home/wanli/data/Extended_ctr/citeulike_a_extended/outof-matrix-item_folds'))
+        'in-matrix-item_folds' if args.split == 'warm' else 'outof-matrix-item_folds'))
     if not os.path.exists(split_folder):
         raise
 
