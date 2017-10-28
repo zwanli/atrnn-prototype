@@ -177,7 +177,7 @@ class Model():
         self.r_hat = tf.add(self.r_hat, self.V_bias_embed,name="R_predicted")
 
         # Tag prediction task
-        tags_loss = self.tag_module(tags_matrix,self.k)
+        # tags_loss = self.tag_module(tags_matrix,self.k)
         # Free some ram
         del tags_matrix
 
@@ -190,7 +190,8 @@ class Model():
 
 
         self.MSE = tf.losses.mean_squared_error(self.r, self.r_hat,weights=confidence)
-        self.reg_loss = tf.add(self.l2_loss, tags_loss )
+        # self.reg_loss = tf.add(self.l2_loss, tags_loss )
+
 
         self.RMSE = tf.sqrt(self.MSE)
 
