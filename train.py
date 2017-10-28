@@ -366,9 +366,9 @@ def train(args):
                 bi_state_fw = bi_out_fw
                 bi_state_bw = bi_out_bw
 
-            # todo: fix the path
-            predicted_ratings_file= os.path.join(os.path.dirname(os.path.dirname(path_training)),'score.npy')
-            np.save(predicted_ratings_file, prediction_matrix)
+                # todo: fix the path
+                predicted_ratings_file= os.path.join(os.path.dirname(os.path.dirname(path_training)),'score-%d.npy' % step)
+                np.save(predicted_ratings_file, prediction_matrix)
 
             model.saver.save(sess, args.log_dir + "/{0}model.ckpt".format(time.strftime(dir_prefix)))
             print('Best test rmse:', best_test_rmse, 'Best test mae', best_test_mae, sep=' ')
