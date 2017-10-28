@@ -183,7 +183,7 @@ class Model():
 
         # Loss function
         self.MAE = tf.reduce_mean(tf.abs(tf.subtract(self.r, self.r_hat)))
-        self.l2_loss =tf.nn.l2_loss(tf.multiply(tf.subtract(self.r, self.r_hat)))
+        self.l2_loss =tf.nn.l2_loss(tf.subtract(self.r, self.r_hat))
         self.reg = tf.add(tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.U)),
                           tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.V)))
         self.reg_loss = tf.add(self.l2_loss, self.reg)
