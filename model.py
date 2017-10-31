@@ -195,11 +195,11 @@ class Model():
         self.l2_loss =tf.nn.l2_loss(tf.subtract(self.r, self.r_hat))
         self.reg = tf.add(tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.U)),
                           tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.V)))
-        self.reg_loss = tf.add(self.l2_loss, self.reg)
+        # self.reg_loss = tf.add(self.l2_loss, self.reg)
+        self.reg_loss = tf.add(self.l2_loss, tags_loss )
 
 
         self.MSE = tf.losses.mean_squared_error(self.r, self.r_hat,weights=confidence)
-        # self.reg_loss = tf.add(self.l2_loss, tags_loss )
 
 
         self.RMSE = tf.sqrt(self.MSE)
@@ -267,8 +267,8 @@ class Model():
 
         # Attribute features vector
         self.input_att = tf.nn.embedding_lookup(self.features_matrix, self.v_idx)
-        self.input_att = tf.Print(self.input_att, [tf.shape(self.input_att), self.input_att],
-                                message='Attributes', first_n=20, summarize=4)
+        # self.input_att = tf.Print(self.input_att, [tf.shape(self.input_att), self.input_att],
+        #                         message='Attributes', first_n=20, summarize=4)
 
         # Network Parameters
         # calculate the number of hidden units for each hidden layer
