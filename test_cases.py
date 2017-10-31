@@ -707,8 +707,6 @@ def ndcg_at_k(predicted_scores, user_scores):
 def test_tags_module():
     k = 2
     tags_matrix = np.random.randint(2, size=(4, 3))
-
-
     v_idx = [1, 2, 3]
     tags_matrix = tf.constant(tags_matrix, dtype=tf.int32, shape=tags_matrix.shape,
                               name='confidence')
@@ -740,7 +738,67 @@ def test_tags_module():
     print(loss_2)
     np.testing.assert_almost_equal(loss_1, loss_2)
 
+def test_tags_module_sparse():
+    k = 2
+    m = 4
+    tags = 3, [[0,0],[1,1],[2,2],[2,0]]
+    v_idx = [1, 2]
 
+    def sparse_slice(indices, values, needed_row_ids):
+        needed_row_ids = tf.reshape(needed_row_ids, [1, -1])
+        num_rows = tf.shape(indices)[0]
+        partitions = tf.cast(tf.reduce_any(tf.equal(tf.reshape(indices[:, 0], [-1, 1]), needed_row_ids), 1), tf.int32)
+        rows_to_gather = tf.dynamic_partition(tf.range(num_rows), partitions, 2)[1]
+        slice_indices = tf.gather(indices, rows_to_gather)
+        slice_values = tf.gather(values, rows_to_gather)
+        return slice_indices, slice_values
+
+    with tf.Session().as_default():
+        tags_matrix = tf.constant(np.random.randint(0,2,size=(16980,46391)), dtype=tf.int32,
+                                  name='confidence')
+        indices = tf.constant([[0, 0], [1, 0], [4, 0], [4, 1]],dtype=tf.int64)
+        values = tf.constant([1.0, 1.0, 0.3, 0.7], dtype=tf.float32)
+        batch_size = 2
+        v_idx = tf.constant([0, 4],dtype=tf.int64)
+        slice_indices, slice_values = sparse_slice(indices, values, v_idx)
+        print(slice_indices.eval())
+        print(slice_values.eval())
+        tags_actual = tf.SparseTensor(slice_indices, slice_values, dense_shape=(tf.reduce_max(v_idx ),tags[0]))
+        print(tags_actual.eval())
+
+        embedding_var = tf.get_variable(name="embedding", shape=[tags[0], k])
+        tf.global_variables_initializer().run()
+
+        #item embeddings
+        f = tf.constant(np.random.rand(batch_size,k), dtype=tf.float32)
+        print(f.eval())
+        tags_probalities = tf.matmul(f,embedding_var,transpose_b=True)
+        print(tags_probalities.eval())
+
+        loss =  tf.sparse_tensor_dense_matmul(tags_actual,tf.transpose(tags_probalities))
+        print(loss.eval())
+        tags_actual = tf.to_float(tags_actual)
+        tags_sigmoid = tf.nn.sigmoid(tags_probalities)
+        pos_prediction = tf.sparse_tensor_dense_matmul(tags_actual, tf.transpose(tf.log(tags_sigmoid)))
+        print(pos_prediction.eval())
+        # neg_prediction = tf.sparse_add(tags_actual,-1)
+        neg_prediction = tf.transpose(tf.log(1 - tags_sigmoid)) - tf.sparse_tensor_dense_matmul(tags_actual, tf.transpose(tf.log(1 - tags_sigmoid)))
+        cross_entropy = -tf.reduce_mean( pos_prediction + neg_prediction,name='xentropy')
+        print(cross_entropy.eval())
+
+    f = np.random.randint(100, size=(len(v_idx), k)) / 100
+    f = tf.constant(f, dtype=tf.float32, shape=f.shape)
+    tags_probalities = tf.einsum('aij,aj->ai', tags_embeddings, f)
+
+    # todo: add downweights for predicting the unobserved tags
+
+    tags_loss = tf.losses.sigmoid_cross_entropy(tags_actual, tags_probalities, )
+    sess = tf.InteractiveSession()
+    tf.global_variables_initializer().run()
+    print(tags_probalities.eval())
+    print(tags_actual.eval())
+    loss_1 = sess.run(tags_loss)
+    print(loss_1)
 
 def test_attributes_module():
     # Implementation of a simple MLP network with one hidden layer.
@@ -846,10 +904,35 @@ def test_parse_tags():
             i += 1
     return tags_matrix
 
-from Recommender_evaluator.lib import evaluator
-def test_evaluator():
-    evaluator.main()
 
+# def replace_row_idx(row_idx):
+#     '''
+#     It produces a list of increasing indices.
+#     input: [0,3,5,6,6,7]
+#     output: [0,1,2,3,3,4]
+#
+#     :return:
+#     '''
+#     i = 0
+#     prev = 0
+#     first_element = True
+#     new_row_idx =[]
+#     row_idx = tf.unstack(row_idx)
+#     for j in row_idx:
+#         if first_element:
+#             new_row_idx.append(i)
+#             prev = j
+#             first_element = False
+#             continue
+#         if j == prev:
+#             new_row_idx.append(i)
+#         else:
+#             i += 1
+#             new_row_idx.append(i)
+#             prev = j
+#     return new_row_idx
+#
+# a = replace_row_idx([0,3,5,6,6,7])
 
 def test_tf_scatter_update():
     import tensorflow as tf
@@ -995,10 +1078,10 @@ def main():
 
     # test_tags_module()
     # test_parse_tags()
-
+    test_tags_module_sparse()
     # test_attributes_module()
 
-    test_tf_scatter_update()
+    # test_tf_scatter_update()
 
 if __name__ == '__main__':
     main()

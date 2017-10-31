@@ -98,7 +98,7 @@ class DataParser(object):
         if self.papers_presentation == 'attributes':
             self.feature_labels, self.feature_matrix = self.parse_paper_features()
             self.get_features_distribution()
-        self.tag_matrix = self.parse_tags()
+        self.tag_count, self.tag_adjacency_list, self.tag_matrix = self.parse_tags()
         # self.parse_authors()
 
     def build_document_word_matrix(self):
@@ -770,7 +770,10 @@ class DataParser(object):
         print('Tags vocaulary size %d' % len(tags))
         item_tags_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.dataset_folder,
                                       'item-tag.dat')
+
         tags_matrix = np.zeros((self.paper_count, tags_count))
+        # Tags as adjacency lists, each row represents an item
+        tags_idx = []
         with open(item_tags_file, "r", encoding='utf-8', errors='ignore') as f:
             reader = csv.reader(f, delimiter=' ')
             i = 0
@@ -780,8 +783,16 @@ class DataParser(object):
                 #     print(i)
                 for j in range(1, int(count) + 1):
                     tags_matrix[i][int(line[j])] = 1
+                    tags_idx.append([i,int(line[j])])
                 i += 1
-        return tags_matrix
+        #return a list of indices
+        return tags_count, tags_idx, tags_matrix
+
+    def get_tag_adjacency_list(self):
+        self.tag_adjacency_list
 
     def get_tag_matrix(self):
         return self.tag_matrix
+
+    def get_tag_count(self):
+        return self.tag_count

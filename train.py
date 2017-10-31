@@ -196,11 +196,11 @@ def load_samples_count(fold, split_mode):
         }[fold]
     else:
         return {
-            1: (163159, 41827),
-            2: (163924, 41062),
-            3: (163805, 41181),
-            4: (164616, 40370),
-            5: (164440, 40546)
+            1: (170988, 33998),
+            2: (170988, 33998),
+            3: (170988, 33998),
+            4: (170988, 33998),
+            5: (140727, 64259)
         }[fold]
 
 
@@ -252,7 +252,7 @@ def train(args):
     with graph.as_default():
         args.training_samples_count = train_sample_count
         model = Model(args, parser.get_ratings_matrix(), parser.embeddings, parser.get_feature_matrix(),
-                      parser.get_tag_matrix(), confidence_matrix, path_training, path_test)
+                      parser.get_tag_count(), confidence_matrix, path_training, path_test)
         train_writer = tf.summary.FileWriter(args.log_dir + '/{0}-train'.format(dir_prefix))
         # valid_writer = tf.summary.FileWriter(args.log_dir + '/{0}-validation'.format(time.strftime(dir_prefix)))
         test_writer = tf.summary.FileWriter(args.log_dir + '/{0}-test'.format(time.strftime(dir_prefix)))
@@ -278,7 +278,11 @@ def train(args):
         dropout_bidir_layer = 0.1
         dropout_embed_layer = 0.1
 
-        tf.global_variables_initializer().run()
+        # Load the tag matrix while initializing graph variables.
+        sess.run(tf.global_variables_initializer(),feed_dict={model.tags_matrix_init: parser.get_tag_matrix()})
+        # free some ram
+        del parser.tag_matrix
+
         tf.local_variables_initializer().run()
 
         print("Loading test ratings matrix")

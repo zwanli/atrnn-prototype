@@ -55,13 +55,11 @@ def _bytes_feature_list(values):
     return tf.train.FeatureList(feature=[_bytes_feature(v) for v in values])
 
 
-def convert_to_tfrecords(path, parser,fold, maxlen, split_method, test=False):
+def  convert_to_tfrecords(path, parser,fold, maxlen, split_method, test=False):
     """Converts a dataset to tfrecords."""
     print('Writing', path)
     writer = tf.python_io.TFRecordWriter(path)
     for u_id, v_id, rating, doc in parser.generate_samples(fold, test=test):
-        if test and split_method == 'warm':
-            doc = ['']
         context = tf.train.Features(feature={
             'u': _int64_feature(u_id),
             'v': _int64_feature(v_id),

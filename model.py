@@ -14,7 +14,7 @@ def bias_variable(shape, name):
 
 class Model():
     def __init__(self, args, ratings, embed,features_matrix,
-                 tags_matrix, confidence_matrix, train_filename, test_filename, enabel_dropout=False, reg_lambda=0.01):
+                 tags_count, confidence_matrix, train_filename, test_filename, enabel_dropout=False, reg_lambda=0.01):
         self.args = args
         self.dataset = args.dataset
         if args.model == 'rnn':
@@ -186,9 +186,9 @@ class Model():
                                                              indices=u_v_idx,updates=self.r_hat)
 
         # Tag prediction task
-        # tags_loss = self.tag_module(tags_matrix,self.k)
-        # Free some ram
-        del tags_matrix
+        tags_loss = self.tag_module(tags_count,self.k)
+        # # Free some ram
+        # del tags_matrix
 
         # Loss function
         self.MAE = tf.reduce_mean(tf.abs(tf.subtract(self.r, self.r_hat)))
@@ -316,17 +316,25 @@ class Model():
                 attribute_output = tf.nn.relu(tf.add(tf.matmul(h_h, w_U_out), b_U_out), 'Attributes_output')
         return attribute_output
 
-    def tag_module(self,tags_matrix, embedding_dim):
-        with tf.device("/cpu:0"):
-            tags_matrix = tf.constant(tags_matrix, dtype=tf.int32, shape=tags_matrix.shape,
-                                     name='confidence')
+    def tag_module(self, tags_count, embedding_dim):
+        '''
 
+        :param tags: is a tuple (tag_count, tag_idx)
+        :param embedding_dim:
+        :return:
+        '''
+        with tf.device("/cpu:0"):
+            self.tags_matrix_init = tf.placeholder(tf.float32, shape=(self.m, tags_count))
+            tags_matrix = tf.Variable(self.tags_matrix_init, trainable=False)
+            # tags_matrix = tf.constant(tags, dtype=tf.int32, shape=tags.shape,
+            #                           name='confidence')
+            # tags_sparse = tf.SparseTensor(indices=tags[1], values= tf.ones(len(tags[1])), dense_shape=(self.m, tags[0]))
             tags_actual = tf.nn.embedding_lookup(tags_matrix, self.v_idx) # [batch_size, max_tags]
 
-            embedding_var = tf.get_variable(name="embedding", shape=[tags_matrix.shape[0], embedding_dim])
-            tags_embeddings = tf.nn.embedding_lookup(embedding_var, tags_actual) # [batch_size, max_tags, embeding_dim]
+            tags_embeddings = tf.get_variable(name="embedding", shape=[tags_count, embedding_dim])
+            # tags_embeddings = tf.nn.embedding_lookup(embedding_var,tags_actual) # [batch_size, max_tags, embeding_dim]
 
-            tags_probalities = tf.einsum('aij,aj->ai',tags_embeddings,self.F)
+            tags_probalities = tf.einsum('ai,bi->ab',self.F, tags_embeddings)
 
             # todo: add downweights for predicting the unobserved tags
 
