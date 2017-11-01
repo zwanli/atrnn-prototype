@@ -2,9 +2,9 @@ import os
 import glob
 import pandas as pd
 import numpy as np
-from Recommender_evaluator.lib.utils import read_ratings
-from Recommender_evaluator.lib.utils import write_ratings
-from Recommender_evaluator.lib.utils import print_list
+from utils import read_ratings
+from utils import write_ratings
+from lib.utils import print_list
 import csv
 import argparse
 

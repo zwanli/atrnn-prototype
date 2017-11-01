@@ -12,7 +12,7 @@ from utils import convert_to_tfrecords
 from tensorflow.python import debug as tf_debug
 import math
 from deep_mf_model import DMF_Model
-from Recommender_evaluator.lib import evaluator
+#from Recommender_evaluator.lib import evaluator
 
 RANDOM_SEED = 42
 tf.set_random_seed(RANDOM_SEED)
@@ -309,8 +309,8 @@ def train(args):
                            model.RMSE, model.MAE, model.summary_op]
                 start = time.time()
 
-                for batch in range(nb_batches_train):
-                # for batch in range(2):
+                # for batch in range(nb_batches_train):
+                for batch in range(2):
                     _, _, prediction_matrix, bi_out_fw, bi_out_bw, final_state, rmse, mae, summary_str = \
                         sess.run(fetches, feed_dict=feed_dict)
                     # print every 500 iteration
@@ -334,11 +334,24 @@ def train(args):
                         init_state = sess.run(model.initial_state)
                         # don't dropout
                         feed_dict = construct_feed(test_bi_fw, test_bi_bw, 0, 0, 0)
-                        # for batch in range(2):
-                        for batch in range(nb_batches_val):
+                        for batch in range(2):
+                        # for batch in range(nb_batches_val):
+
                             rmse_test, mae_test, summary_str = sess.run(
                                 [model.RMSE, model.MAE, model.summary_op], feed_dict=feed_dict)
                             test_writer.add_summary(summary_str, global_step=(step * nb_batches_val + batch))
+
+                        print("Step {0} | Train RMSE: {1:3.4f}, MAE: {2:3.4f}".format(
+                            step, rmse, mae))
+                        print("         | Test  RMSE: {0:3.4f}, MAE: {1:3.4f}".format(
+                            rmse_test, mae_test))
+                        if best_val_rmse > rmse_test:
+                            # best_val_rmse = rmse_valid
+                            best_test_rmse = rmse_test
+
+                        if best_val_mae > rmse_test:
+                            # best_val_mae = mae_valid
+                            best_test_mae = mae_test
                     # prediction_matrix = np.matmul(U, np.add(V, rnn_output).T)
                     # prediction_matrix = np.add(prediction_matrix, np.reshape(U_b, [-1, 1]))
                     # prediction_matrix = np.add(prediction_matrix, V_b)
@@ -360,10 +373,6 @@ def train(args):
                     eval_metrics = sess.run([model.eval_metrics], feed_dict=feed)
                     test_writer.add_summary(eval_metrics[0], step)
 
-                    print("Step {0} | Train RMSE: {1:3.4f}, MAE: {2:3.4f}".format(
-                        step, rmse, mae))
-                    print("         | Test  RMSE: {0:3.4f}, MAE: {1:3.4f}".format(
-                        rmse_test, mae_test))
                     print("         | Recall@10: {0:3.4f}".format(recall_10))
                     print("         | Recall@50: {0:3.4f}".format(recall_50))
                     print("         | Recall@100: {0:3.4f}".format(recall_100))
@@ -372,13 +381,7 @@ def train(args):
                     print("         | ndcg@5: {0:3.4f}".format(ndcg_at_five))
                     print("         | ndcg@10: {0:3.4f}".format(ndcg_at_ten))
                     print("         | mrr@10: {0:3.4f}".format(mrr_at_ten))
-                    if best_val_rmse > rmse_test:
-                        # best_val_rmse = rmse_valid
-                        best_test_rmse = rmse_test
 
-                    if best_val_mae > rmse_test:
-                        # best_val_mae = mae_valid
-                        best_test_mae = mae_test
 
                 # loop state around
                 h_state = final_state

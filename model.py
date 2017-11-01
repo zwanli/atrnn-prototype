@@ -41,6 +41,9 @@ class Model():
 
         confidence = tf.constant(confidence_matrix, dtype=tf.float32, shape=confidence_matrix.shape,
                                  name='confidence')
+        # Free some ram
+        del confidence_matrix
+
         u_v_idx = tf.stack([self.u_idx, self.v_idx], axis=1)
         confidence = tf.gather_nd(confidence, u_v_idx)
 
@@ -437,7 +440,6 @@ def get_input_test(filenames,batch_size):
 def get_input_dataset(train_filename,test_filename,batch_size):
     with tf.device("/cpu:0"):
         with tf.variable_scope('input'):
-
             # Creates a dataset that reads all of the examples from filenames.
             validation_dataset = tf.contrib.data.TFRecordDataset(test_filename)
             training_dataset = tf.contrib.data.TFRecordDataset(train_filename)
