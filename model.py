@@ -35,6 +35,8 @@ class Model():
         self.reg_lambda = tf.constant(reg_lambda, dtype=tf.float32)
 
         self.batch_size = args.batch_size
+        self.batch_pointer = tf.Variable(0, name="batch_pointer", trainable=False, dtype=tf.int32)
+        self.inc_batch_pointer_op = tf.assign(self.batch_pointer, self.batch_pointer + 1)
 
         outputs,init_ops = get_input_dataset(train_filename,test_filename, batch_size=self.batch_size)
         self.u_idx,self.v_idx, self.r, self.input_text, self.seq_lengths = outputs
@@ -63,7 +65,7 @@ class Model():
         self.dropout_bidir_layer = tf.placeholder(tf.float32, name='dropout_bidir_layer')
         self.dropout_embed_layer = tf.placeholder(tf.float32, name='dropout_embed_layer')
 
-        with tf.variable_scope('rnn'):
+        with tf.variable_scope('RNN'):
 
             with tf.device("/cpu:0"):
                 vocab_size = args.vocab_size
@@ -142,115 +144,125 @@ class Model():
                                        ,initializer=tf.constant_initializer(0.))
             self.update_rnn_output = tf.scatter_update(self.RNN, self.v_idx, self.G)
 
-
-
-        ## Attributes component
-        att_output = self.attribute_module(features_matrix,args.num_layers)
+        use_attribues= True
+        if use_attribues:
+            ## Attributes component
+            self.att_output = self.attribute_module(features_matrix,args.num_layers)
 
         # Free some ram
         del features_matrix
 
-        # U matrix [num_users, embeddings_dim]
-        self.U = weight_variable([self.n, self.k], 'U')
-        # V matrix [num_items, embeddings_dim]
-        self.V = weight_variable([self.m, self.k], 'V')
+        with tf.name_scope('Matrix_factorizatin'):
+            # U matrix [num_users, embeddings_dim]
+            self.U = weight_variable([self.n, self.k], 'U')
+            # V matrix [num_items, embeddings_dim]
+            self.V = weight_variable([self.m, self.k], 'V')
 
 
 
-        # U, V biases
-        self.U_bias = weight_variable([self.n], 'U_bias')
-        self.V_bias = weight_variable([self.m], 'V_bias')
+            # U, V biases
+            self.U_bias = bias_variable([self.n], 'U_bias')
+            self.V_bias = bias_variable([self.m], 'V_bias')
 
-        # Users' raws form U matrix considered for the current batch [batch_size, embeddings_dim]
-        self.U_embed = tf.nn.embedding_lookup(self.U, self.u_idx)
-        # Items' raws form V matrix considered for the current batch [batch_size, embeddings_dim]
-        self.V_embed = tf.nn.embedding_lookup(self.V, self.v_idx)
+            # Users' raws form U matrix considered for the current batch [batch_size, embeddings_dim]
+            self.U_embed = tf.nn.embedding_lookup(self.U, self.u_idx)
+            # Items' raws form V matrix considered for the current batch [batch_size, embeddings_dim]
+            self.V_embed = tf.nn.embedding_lookup(self.V, self.v_idx)
 
-        self.U_bias_embed = tf.nn.embedding_lookup(self.U_bias, self.u_idx)
-        self.V_bias_embed = tf.nn.embedding_lookup(self.V_bias, self.v_idx)
+            self.U_bias_embed = tf.nn.embedding_lookup(self.U_bias, self.u_idx)
+            self.V_bias_embed = tf.nn.embedding_lookup(self.V_bias, self.v_idx)
 
 
-        self.F = tf.add(self.V_embed,self.G)
+        with tf.name_scope('joint_output'):
+            self.F = tf.add(self.V_embed,self.G)
 
-        self.F = tf.add(self.F,att_output)
+            if use_attribues:
+                self.F = tf.add(self.F,self.att_output)
 
-        self.r_hat = tf.reduce_mean(tf.multiply(self.U_embed, self.F), reduction_indices=1)
+            self.r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.F), reduction_indices=1)
 
-        # self.r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.V_embed), reduction_indices=1)
-        self.r_hat = tf.add(self.r_hat, self.U_bias_embed)
-        self.r_hat = tf.add(self.r_hat, self.V_bias_embed,name="R_predicted")
+            # self.r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.V_embed), reduction_indices=1)
+            self.r_hat = tf.add(self.r_hat, self.U_bias_embed)
+            self.r_hat = tf.add(self.r_hat, self.V_bias_embed,name="R_predicted")
+
+            multi_task = args.multi_task
+
+            if multi_task:
+                # Tag prediction task
+                tags_loss = self.tag_module(tags_count,self.k)
 
         # Update predicted ratings matrix
         with tf.device("/cpu:0"):
             # RNN output [num_items, embedding_dim]
-            self.predicted_matrix = tf.get_variable(shape=[self.n, self.m], name='Predicted_ratings', trainable=False, dtype=tf.float32
-                                       , initializer=tf.constant_initializer(0.))
+            self.predicted_matrix = tf.get_variable(shape=[self.n, self.m], name='Predicted_ratings',
+                                                    trainable=False, dtype=tf.float32
+                                                    , initializer=tf.constant_initializer(0.))
             self.update_predicted_matrix = tf.scatter_nd_update(self.predicted_matrix,
-                                                             indices=u_v_idx,updates=self.r_hat)
+                                                                        indices=u_v_idx, updates=self.r_hat)
+        with tf.name_scope('loss'):
+            # Loss function
+            # self.MAE = tf.reduce_mean(tf.abs(tf.subtract(self.r, self.r_hat)))
+            self.l2_loss =tf.nn.l2_loss(tf.subtract(self.r, self.r_hat))
+            self.l2_reg = tf.add(tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.U)),
+                              tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.V)))
+            self.MSE_loss = tf.losses.mean_squared_error(self.r, self.r_hat, weights=confidence)
 
-        # Tag prediction task
-        tags_loss = self.tag_module(tags_count,self.k)
-        # # Free some ram
-        # del tags_matrix
+            self.RMSE = tf.sqrt(self.MSE_loss)
 
-        # Loss function
-        self.MAE = tf.reduce_mean(tf.abs(tf.subtract(self.r, self.r_hat)))
-        self.l2_loss =tf.nn.l2_loss(tf.subtract(self.r, self.r_hat))
-        self.reg = tf.add(tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.U)),
-                          tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.V)))
-        # self.reg_loss = tf.add(self.l2_loss, self.reg)
-        self.reg_loss = tf.add(self.l2_loss, tags_loss )
+            if multi_task:
+                self.reg_loss = tf.add(self.MSE_loss, tags_loss)
+            else:
+                self.reg_loss = tf.add(self.MSE_loss, self.l2_reg)
 
+        with tf.name_scope('learning_rate_decay'):
+            # self.global_step = tf.Variable(0, trainable=False)
+            starter_learning_rate = self.learning_rate
+            learning_rate = tf.train.exponential_decay(starter_learning_rate, self.batch_pointer,
+                                                       100000, 0.96, staircase=True)
 
-        self.MSE = tf.losses.mean_squared_error(self.r, self.r_hat,weights=confidence)
+        with tf.name_scope('adam_optimizer'):
+            self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
 
+            # In case of joint optimization
+            self.joint_train_step = self.optimizer.minimize(self.reg_loss)
 
-        self.RMSE = tf.sqrt(self.MSE)
+            # In case of alternate learning method
+            self.train_step_u = self.optimizer.minimize(self.reg_loss, var_list=[self.U, self.U_bias])
+            self.train_step_v = self.optimizer.minimize(self.reg_loss, var_list=[self.V, self.V_bias])
+            t_vars=tf.trainable_variables()
+            gru_vars = [var for var in t_vars if 'gru_cell' in var.name]
+            self.train_step_rnn = self.optimizer.minimize(self.reg_loss, var_list=[gru_vars])
 
+        with tf.name_scope('metrics'):
+            tf.summary.scalar("MSE", self.MSE_loss)
+            tf.summary.scalar("RMSE", self.RMSE)
+            tf.summary.scalar("L2-Loss", self.l2_loss)
+            tf.summary.scalar("Reg-Loss", self.reg_loss)
 
-        self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
+            # add op for merging summary
+            self.summary_op = tf.summary.merge_all()
 
-        # In case of joint loss function
-        self.joint_train_step = self.optimizer.minimize(self.reg_loss)
+            self.recall = tf.Variable(0, trainable=False,dtype=tf.float32)
+            self.recall_10 = tf.Variable(0, trainable=False, dtype=tf.float32)
+            self.recall_50 = tf.Variable (0,trainable=False, dtype=tf.float32)
+            self.recall_100 = tf.Variable(0, trainable=False, dtype=tf.float32)
+            self.recall_200 = tf.Variable(0, trainable=False, dtype=tf.float32)
+            recall_sum =tf.summary.scalar("Recall",self.recall)
+            recall_10_sum = tf.summary.scalar('recall@10',self.recall_10)
+            recall_50_sum = tf.summary.scalar('recall@50',self.recall_50)
+            recall_100_sum = tf.summary.scalar('recall@100',self.recall_100)
+            recall_200_sum = tf.summary.scalar('recall@200',self.recall_200)
 
-        # In case of alternate learning method
-        self.train_step_u = self.optimizer.minimize(self.reg_loss, var_list=[self.U, self.U_bias])
-        self.train_step_v = self.optimizer.minimize(self.reg_loss, var_list=[self.V, self.V_bias])
-        t_vars=tf.trainable_variables()
-        gru_vars = [var for var in t_vars if 'gru_cell' in var.name]
-        self.train_step_rnn = self.optimizer.minimize(self.reg_loss, var_list=[gru_vars])
+            self.ndcg_5 = tf.Variable(0, trainable=False,dtype=tf.float32)
+            self.ndcg_10 = tf.Variable(0, trainable=False,dtype=tf.float32)
+            ndcg_5_sum = tf.summary.scalar('ndcg@5',self.ndcg_5)
+            ndcg_10_sum = tf.summary.scalar('ndcg@10',self.ndcg_10)
 
+            self.mrr_10 = tf.Variable(0, trainable=False,dtype=tf.float32)
+            mrr_10_sum = tf.summary.scalar('mrr@10', self.mrr_10)
 
-        tf.summary.scalar("MSE", self.MSE)
-        tf.summary.scalar("RMSE", self.RMSE)
-        # tf.summary.scalar("MAE", self.MAE)
-        # tf.summary.scalar("L2-Loss", self.l2_loss)
-        tf.summary.scalar("Reg-Loss", self.reg_loss)
-
-        # add op for merging summary
-        self.summary_op = tf.summary.merge_all()
-
-        self.recall = tf.Variable(0, trainable=False,dtype=tf.float32)
-        self.recall_10 = tf.Variable(0, trainable=False, dtype=tf.float32)
-        self.recall_50 = tf.Variable (0,trainable=False, dtype=tf.float32)
-        self.recall_100 = tf.Variable(0, trainable=False, dtype=tf.float32)
-        self.recall_200 = tf.Variable(0, trainable=False, dtype=tf.float32)
-        recall_sum =tf.summary.scalar("Recall",self.recall)
-        recall_10_sum = tf.summary.scalar('recall@10',self.recall_10)
-        recall_50_sum = tf.summary.scalar('recall@50',self.recall_50)
-        recall_100_sum = tf.summary.scalar('recall@100',self.recall_100)
-        recall_200_sum = tf.summary.scalar('recall@200',self.recall_200)
-
-        self.ndcg_5 = tf.Variable(0, trainable=False,dtype=tf.float32)
-        self.ndcg_10 = tf.Variable(0, trainable=False,dtype=tf.float32)
-        ndcg_5_sum = tf.summary.scalar('ndcg@5',self.ndcg_5)
-        ndcg_10_sum = tf.summary.scalar('ndcg@10',self.ndcg_10)
-
-        self.mrr_10 = tf.Variable(0, trainable=False,dtype=tf.float32)
-        mrr_10_sum = tf.summary.scalar('mrr@10', self.mrr_10)
-
-        self.eval_metrics = tf.summary.merge((recall_sum,recall_10_sum,recall_50_sum,recall_100_sum,recall_200_sum,
-                                             ndcg_5_sum, ndcg_10_sum,mrr_10_sum))
+            self.eval_metrics = tf.summary.merge((recall_sum,recall_10_sum,recall_50_sum,recall_100_sum,recall_200_sum,
+                                                 ndcg_5_sum, ndcg_10_sum,mrr_10_sum))
 
         # add Saver ops
         self.saver = tf.train.Saver()

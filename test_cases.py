@@ -968,6 +968,26 @@ def test_tf_scatter_update():
         # print('----------')
         # print(sess.run(sparse_update))
 
+def test_loss():
+    sess = tf.InteractiveSession()
+    u = tf.constant(np.arange(1,6),dtype=tf.float32,shape=[2,3])
+    f = tf.constant(np.arange(3,8),dtype=tf.float32,shape=[2,3])
+    tf.global_variables_initializer().run()
+    print(u.eval())
+    print(f.eval())
+    r_hat = tf.reduce_sum(tf.multiply(u, f), reduction_indices=1)
+    print(tf.multiply(u, f).eval())
+    print(r_hat.eval())
+    confidence = tf.constant([1,1],dtype=tf.float32,shape=[2])
+    r = tf.constant([28,100],dtype=tf.float32,shape=[2])
+    MSE = tf.losses.mean_squared_error(r, r_hat,weights=confidence)
+    RMSE = tf.sqrt(MSE)
+    l2_loss = tf.nn.l2_loss(tf.multiply(confidence,tf.subtract(r, r_hat)))
+    print(MSE.eval())
+    print(RMSE.eval())
+    print(l2_loss.eval())
+
+
 def main():
     # batch_size = 1
     capacity = 1500
@@ -1078,10 +1098,17 @@ def main():
 
     # test_tags_module()
     # test_parse_tags()
-    test_tags_module_sparse()
+    # test_tags_module_sparse()
     # test_attributes_module()
 
     # test_tf_scatter_update()
+
+    # score_file ='/home/wanli/data/Extended_ctr/citeulike_a_extended/outof-matrix-item_folds/fold-5/score.npy'
+    # score = np.load(score_file)
+    # a = 1
+
+    test_loss()
+
 
 if __name__ == '__main__':
     main()

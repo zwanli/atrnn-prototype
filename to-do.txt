@@ -1,0 +1,4 @@
+- Out-of-matrix prediction
+- dropout layer
+- run for 5 folds
+- validation set

@@ -12,7 +12,8 @@ from utils import convert_to_tfrecords
 from tensorflow.python import debug as tf_debug
 import math
 from deep_mf_model import DMF_Model
-#from Recommender_evaluator.lib import evaluator
+
+# from Recommender_evaluator.lib import evaluator
 
 RANDOM_SEED = 42
 tf.set_random_seed(RANDOM_SEED)
@@ -31,6 +32,7 @@ def main():
     parser.add_argument('--input_encoding', type=str, default=None,
                         help='character encoding of input.txt, from https://docs.python.org/3/library/codecs.html#standard-encodings')
     parser.add_argument('--folds', type=int, default=5, help='Number of folds')
+    parser.add_argument('--fold', type=int, default=1, help='Data fold to be used for training')
     parser.add_argument('--split', type=str, default='cold', help='The splitting strategy', choices=['warm', 'cold'])
     parser.add_argument('--log_dir', type=str, default='logs',
                         help='directory containing tensorboard logs')
@@ -50,8 +52,11 @@ def main():
                         help='number of epochs')
     parser.add_argument('--save_every', type=int, default=1000,
                         help='save frequency')
+    parser.add_argument('--multi_task', action='store_true',
+                        help='Multi-task learning')
     parser.add_argument('--learning_rate', type=float, default=0.000001,
                         help='learning rate')
+
     parser.add_argument('--gpu_mem', type=float, default=0.666,
                         help='%% of gpu memory to be allocated to this process. Default is 66.6%%')
     # parser.add_argument('--decay_rate', type=float, default=0.97,
@@ -164,10 +169,10 @@ def process_input(args, parser):
                 parser.load_folds(split_folder)
             convert_to_tfrecords(test_file, parser, fold, args.max_length, args.split, test=True)
         # Add the train and test files' paths
-        folds_paths[fold+1] = (train_file, test_file)
+        folds_paths[fold + 1] = (train_file, test_file)
 
     sample_count = {}
-    for fold in range(1, args.folds+1):
+    for fold in range(1, args.folds + 1):
         if not args.dataset == 'citeulike-a':
             count_tr = num_samples(folds_paths[fold][0])
             # Path of the training fold
@@ -178,14 +183,26 @@ def process_input(args, parser):
             sample_count[fold] = (count_tr, count_test)
         else:
             sample_count[fold] = load_samples_count(fold, args.split)
-            print('Total number of train samples in fold {0}: {1}'.format(fold, load_samples_count(fold, args.split)[0]))
-            print('Total number of test  samples in fold {0}: {1}'.format(fold, load_samples_count(fold,  args.split)[1]))
+            print('Total number of train samples in fold {0}: {1}'.format(fold, load_samples_count(fold, args.split,
+                                                                                                   negative_samples=True)[
+                0]))
+            print('Total number of test  samples in fold {0}: {1}'.format(fold, load_samples_count(fold, args.split,
+                                                                                                   negative_samples=True)[
+                1]))
 
     print('Finished parsing the input')
     return folds_paths, sample_count
 
 
-def load_samples_count(fold, split_mode):
+def load_samples_count(fold, split_mode, negative_samples=True):
+    if split_mode == 'warm' and negative_samples:
+        return {
+            1: (341976, 33998),
+            2: (341976, 33998),
+            3: (341976, 33998),
+            4: (341976, 33998),
+            5: (281454, 64259)
+        }[fold]
     if split_mode == 'cold':
         return {
             1: (163159, 41827),
@@ -194,7 +211,7 @@ def load_samples_count(fold, split_mode):
             4: (164616, 40370),
             5: (164440, 40546)
         }[fold]
-    else:
+    if split_mode == 'warm':
         return {
             1: (170988, 33998),
             2: (170988, 33998),
@@ -205,8 +222,10 @@ def load_samples_count(fold, split_mode):
 
 
 def train(args):
+    # initialize the parser
     parser = DataParser(args.data_dir, args.dataset, 'attributes',
                         use_embeddings=True, embed_dir=args.embedding_dir, embed_dim=args.embedding_dim)
+
     # read input data
     dataset_path, dataset_count = process_input(args, parser)
     args.vocab_size = parser.get_vocab_size()
@@ -220,26 +239,9 @@ def train(args):
     with open(os.path.join(args.save_dir, 'config.pkl'), 'wb') as f:
         pickle.dump(args, f, pickle.HIGHEST_PROTOCOL)
 
-    for fold in range(1,args.folds+1):
-        path_training = dataset_path[fold][0]
-        path_test = dataset_path[fold][1]
-
-        train_sample_count = dataset_count[fold][0]
-        test_sample_count = dataset_count[fold][1]
-
-        nb_batches_train = int(math.ceil(train_sample_count / args.batch_size))
-        print('Number of training batches {0}, number of samples {1}'.format(nb_batches_train, train_sample_count))
-        nb_batches_val = int(math.ceil(test_sample_count / args.batch_size))
-        print(
-            'Number of test batches {0}, number of samples {1}'.format(nb_batches_val, test_sample_count))
-    # calcate the size of the last batch, it might be smaller than the default batch_size
-    last_batch_size = train_sample_count % args.batch_size
-
     print('Vocabulary size {0}'.format(parser.words_count))
 
-    dir_prefix = '{0}-{1}-{2}-{3}'.format(time.strftime("%d:%m-%H:%M:"), args.dataset, args.split, args.max_length)
-    # Checkpoints directory
-    ckpt_dir = os.path.join(args.log_dir, 'checkpoints/{0}-train'.format(dir_prefix))
+
 
     best_val_rmse = np.inf
     best_val_mae = np.inf
@@ -248,26 +250,48 @@ def train(args):
 
     evaluator = Evaluator(parser.get_ratings_matrix(), verbose=True)
 
-    graph = tf.Graph()
-    with graph.as_default():
-        args.training_samples_count = train_sample_count
-        model = Model(args, parser.get_ratings_matrix(), parser.embeddings, parser.get_feature_matrix(),
-                      parser.get_tag_count(), confidence_matrix, path_training, path_test)
-        train_writer = tf.summary.FileWriter(args.log_dir + '/{0}-train'.format(dir_prefix))
-        # valid_writer = tf.summary.FileWriter(args.log_dir + '/{0}-validation'.format(time.strftime(dir_prefix)))
-        test_writer = tf.summary.FileWriter(args.log_dir + '/{0}-test'.format(time.strftime(dir_prefix)))
-
     def construct_feed(bi_hid_fw, bi_hid_bw, dropout_0, dropout_1, dropout_2):
         return {model.init_state_fw: bi_hid_fw, model.init_state_bw: bi_hid_bw,
                 model.dropout_embed_layer: dropout_0, model.dropout_bidir_layer: dropout_1,
                 model.dropout_second_layer: dropout_2}
         # model.initial_state: hid_state,
 
+    # TF configurations
     config = tf.ConfigProto()
     config.gpu_options.allocator_type = 'BFC'
 
     n_steps = args.num_epochs
+    multi_task = args.multi_task
+
+    # The data fold that will be used for training
+    fold = args.fold
+
+    dir_prefix = '{0}-{1}-{2}-{3}-f{4}'.format(time.strftime("%d:%m-%H:%M:"), args.dataset, args.split,
+                                               args.max_length, fold)
+    # Checkpoints directory
+    ckpt_dir = os.path.join(args.log_dir, 'checkpoints/{0}-train'.format(dir_prefix))
+
+    path_training = dataset_path[fold][0]
+    path_test = dataset_path[fold][1]
+
+    train_sample_count = dataset_count[fold][0]
+    test_sample_count = dataset_count[fold][1]
+
+    nb_batches_train = int(math.ceil(train_sample_count / args.batch_size))
+    print('Number of training batches {0}, number of samples {1}'.format(nb_batches_train, train_sample_count))
+    nb_batches_val = int(math.ceil(test_sample_count / args.batch_size))
+    print(
+        'Number of test batches {0}, number of samples {1}'.format(nb_batches_val, test_sample_count))
+    graph = tf.Graph()
+    with graph.as_default():
+        args.training_samples_count = train_sample_count
+        model = Model(args, parser.get_ratings_matrix(), parser.embeddings, parser.get_feature_matrix(),
+                      parser.get_tag_count(), confidence_matrix, path_training, path_test)
+
     with tf.Session(config=config, graph=graph) as sess:
+        train_writer = tf.summary.FileWriter(args.log_dir + '/{0}-train'.format(dir_prefix))
+        # valid_writer = tf.summary.FileWriter(args.log_dir + '/{0}-validation'.format(time.strftime(dir_prefix)))
+        test_writer = tf.summary.FileWriter(args.log_dir + '/{0}-test'.format(time.strftime(dir_prefix)))
         # sess = tf_debug.LocalCLIDebugWrapperSession(sess)
         # sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
         print('Saving graph to disk...')
@@ -278,15 +302,18 @@ def train(args):
         dropout_bidir_layer = 0.1
         dropout_embed_layer = 0.1
 
-        # Load the tag matrix while initializing graph variables.
-        sess.run(tf.global_variables_initializer(),feed_dict={model.tags_matrix_init: parser.get_tag_matrix()})
+        if multi_task:
+            # Load the tag matrix while initializing graph variables.
+            sess.run(tf.global_variables_initializer(), feed_dict={model.tags_matrix_init: parser.get_tag_matrix()})
+        else:
+            sess.run(tf.global_variables_initializer())
         # free some ram
         del parser.tag_matrix
 
         tf.local_variables_initializer().run()
 
-        print("Loading test ratings matrix")
-        test_ratings = utils.get_test_ratings_matrix(path_test, parser.user_count, parser.paper_count, sess)
+        # print("Loading test ratings matrix")
+        # test_ratings = utils.get_test_ratings_matrix(path_test, parser.user_count, parser.paper_count, sess)
 
         bi_state_fw = sess.run(model.init_state_bw)
         bi_state_bw = sess.run(model.init_state_fw)
@@ -294,6 +321,7 @@ def train(args):
 
         try:
             for step in range(n_steps):
+            # for step in range(1):
                 print('{0}: Epoch {1}'.format(time.strftime("%d:%m-%H:%M:"), step))
                 print('Training .....................................')
                 # Initialize the training dataset iterator
@@ -303,15 +331,17 @@ def train(args):
 
                 fetches = [model.joint_train_step,
                            model.update_rnn_output,
-                           # model.U, model.V, model.RNN, model.U_bias, model.V_bias,
+                           model.u_idx, model.v_idx,
+                           model.U, model.V, model.RNN, model.U_bias, model.V_bias, model.att_output,
                            model.update_predicted_matrix,
                            model.bi_output_state_fw, model.bi_output_state_bw, model.H,
-                           model.RMSE, model.MAE, model.summary_op]
+                           model.RMSE, model.summary_op, model.inc_batch_pointer_op]
                 start = time.time()
 
-                # for batch in range(nb_batches_train):
-                for batch in range(2):
-                    _, _, prediction_matrix, bi_out_fw, bi_out_bw, final_state, rmse, mae, summary_str = \
+                for batch in range(nb_batches_train):
+                # for batch in range(1):
+                    _, _, u_idx, v_idx, U, V, rnn, U_b, V_b, att_ouput, \
+                    prediction_matrix, bi_out_fw, bi_out_bw, final_state, rmse, summary_str, _ = \
                         sess.run(fetches, feed_dict=feed_dict)
                     # print every 500 iteration
                     if batch // 10 % 50 == 0:
@@ -335,66 +365,62 @@ def train(args):
                         # don't dropout
                         feed_dict = construct_feed(test_bi_fw, test_bi_bw, 0, 0, 0)
                         for batch in range(2):
-                        # for batch in range(nb_batches_val):
+                            # for batch in range(nb_batches_val):
 
-                            rmse_test, mae_test, summary_str = sess.run(
-                                [model.RMSE, model.MAE, model.summary_op], feed_dict=feed_dict)
+                            rmse_test, summary_str = sess.run(
+                                [model.RMSE, model.summary_op], feed_dict=feed_dict)
                             test_writer.add_summary(summary_str, global_step=(step * nb_batches_val + batch))
 
-                        print("Step {0} | Train RMSE: {1:3.4f}, MAE: {2:3.4f}".format(
-                            step, rmse, mae))
-                        print("         | Test  RMSE: {0:3.4f}, MAE: {1:3.4f}".format(
-                            rmse_test, mae_test))
+                        print("Step {0} | Train RMSE: {1:3.4f}".format(
+                            step, rmse))
+                        print("         | Test  RMSE: {0:3.4f}".format(
+                            rmse_test))
                         if best_val_rmse > rmse_test:
                             # best_val_rmse = rmse_valid
                             best_test_rmse = rmse_test
 
-                        if best_val_mae > rmse_test:
-                            # best_val_mae = mae_valid
-                            best_test_mae = mae_test
                     # prediction_matrix = np.matmul(U, np.add(V, rnn_output).T)
                     # prediction_matrix = np.add(prediction_matrix, np.reshape(U_b, [-1, 1]))
                     # prediction_matrix = np.add(prediction_matrix, V_b)
 
-                    rounded_predictions = utils.rounded_predictions(prediction_matrix)
-                    evaluator.load_top_recommendations_2(200, prediction_matrix, test_ratings)
-                    recall_10 = evaluator.recall_at_x(10, prediction_matrix, parser.ratings, rounded_predictions)
-                    recall_50 = evaluator.recall_at_x(50, prediction_matrix, parser.ratings, rounded_predictions)
-                    recall_100 = evaluator.recall_at_x(100, prediction_matrix, parser.ratings, rounded_predictions)
-                    recall_200 = evaluator.recall_at_x(200, prediction_matrix, parser.ratings, rounded_predictions)
-                    recall = evaluator.calculate_recall(ratings=parser.ratings, predictions=rounded_predictions)
-                    ndcg_at_five = evaluator.calculate_ndcg(5, rounded_predictions)
-                    ndcg_at_ten = evaluator.calculate_ndcg(10, rounded_predictions)
-                    mrr_at_ten = evaluator.calculate_mrr(10, rounded_predictions)
-
-                    feed = {model.recall: recall, model.recall_10: recall_10, model.recall_50: recall_50,
-                            model.recall_100: recall_100, model.recall_200: recall_200,
-                            model.ndcg_5: ndcg_at_five, model.ndcg_10: ndcg_at_ten, model.mrr_10: mrr_at_ten}
-                    eval_metrics = sess.run([model.eval_metrics], feed_dict=feed)
-                    test_writer.add_summary(eval_metrics[0], step)
-
-                    print("         | Recall@10: {0:3.4f}".format(recall_10))
-                    print("         | Recall@50: {0:3.4f}".format(recall_50))
-                    print("         | Recall@100: {0:3.4f}".format(recall_100))
-                    print("         | Recall@200: {0:3.4f}".format(recall_200))
-                    print("         | Recall: {0:3.4f}".format(recall))
-                    print("         | ndcg@5: {0:3.4f}".format(ndcg_at_five))
-                    print("         | ndcg@10: {0:3.4f}".format(ndcg_at_ten))
-                    print("         | mrr@10: {0:3.4f}".format(mrr_at_ten))
-
+                    # rounded_predictions = utils.rounded_predictions(prediction_matrix)
+                    # evaluator.load_top_recommendations_2(200, prediction_matrix, test_ratings)
+                    # recall_10 = evaluator.recall_at_x(10, prediction_matrix, parser.ratings, rounded_predictions)
+                    # recall_50 = evaluator.recall_at_x(50, prediction_matrix, parser.ratings, rounded_predictions)
+                    # recall_100 = evaluator.recall_at_x(100, prediction_matrix, parser.ratings, rounded_predictions)
+                    # recall_200 = evaluator.recall_at_x(200, prediction_matrix, parser.ratings, rounded_predictions)
+                    # recall = evaluator.calculate_recall(ratings=parser.ratings, predictions=rounded_predictions)
+                    # ndcg_at_five = evaluator.calculate_ndcg(5, rounded_predictions)
+                    # ndcg_at_ten = evaluator.calculate_ndcg(10, rounded_predictions)
+                    # mrr_at_ten = evaluator.calculate_mrr(10, rounded_predictions)
+                    #
+                    # feed = {model.recall: recall, model.recall_10: recall_10, model.recall_50: recall_50,
+                    #         model.recall_100: recall_100, model.recall_200: recall_200,
+                    #         model.ndcg_5: ndcg_at_five, model.ndcg_10: ndcg_at_ten, model.mrr_10: mrr_at_ten}
+                    # eval_metrics = sess.run([model.eval_metrics], feed_dict=feed)
+                    # test_writer.add_summary(eval_metrics[0], step)
+                    #
+                    # print("         | Recall@10: {0:3.4f}".format(recall_10))
+                    # print("         | Recall@50: {0:3.4f}".format(recall_50))
+                    # print("         | Recall@100: {0:3.4f}".format(recall_100))
+                    # print("         | Recall@200: {0:3.4f}".format(recall_200))
+                    # print("         | Recall: {0:3.4f}".format(recall))
+                    # print("         | ndcg@5: {0:3.4f}".format(ndcg_at_five))
+                    # print("         | ndcg@10: {0:3.4f}".format(ndcg_at_ten))
+                    # print("         | mrr@10: {0:3.4f}".format(mrr_at_ten))
 
                 # loop state around
                 h_state = final_state
                 bi_state_fw = bi_out_fw
                 bi_state_bw = bi_out_bw
 
-            predicted_ratings_file= os.path.join(os.path.dirname(os.path.dirname(path_training)),'score.npy')
+            fold_dir = os.path.dirname(os.path.dirname(path_training))
+            predicted_ratings_file = os.path.join(fold_dir, 'score.npy')
             np.save(predicted_ratings_file, prediction_matrix)
 
-            model.saver.save(sess, args.log_dir + "/{0}model.ckpt".format(time.strftime(dir_prefix)))
-            print('Best test rmse:', best_test_rmse, 'Best test mae', best_test_mae, sep=' ')
+            model.saver.save(sess, fold_dir + "/{0}model.ckpt".format(time.strftime(dir_prefix)))
+            # print('Best test rmse:', best_test_rmse, 'Best test mae', best_test_mae, sep=' ')
             train_writer.close()
-            # valid_writer.close()
             test_writer.close()
         except Exception as e:
             print(e)

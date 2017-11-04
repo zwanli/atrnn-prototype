@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from utils import read_ratings
 from utils import write_ratings
-from lib.utils import print_list
+from utils import print_list
 import csv
 import argparse
 

@@ -642,9 +642,10 @@ class DataParser(object):
         mask[[train_idx]] = False
         mask[[test_idx]] = False
         negative_idx = idx[mask]
-        np.random.seed(0)
+        np.random.seed(42)
         np.random.shuffle(negative_idx)
         return negative_idx[:len(train_idx)]
+
 
     def load_folds(self, data_directory, folds_num=5 ):
         '''
@@ -702,20 +703,33 @@ class DataParser(object):
                 yield u_idx[0], v_idx[0], r[0], docs[0]
                 # return True
 
-    def generate_samples(self, fold, train=True, test=False):
+    def generate_samples(self, fold, train=True, test=False, add_negative_samples=True):
         # ratings = np.zeros((self.user_count, self.paper_count),dtype=np.int32)
         #
+        np.random.seed(42)
         if test:
             ratings_ = self.test_ratings
         elif train:
             ratings_ = self.train_ratings
 
-        for i, u in enumerate(ratings_[fold]):
-            for v in u:
-                # ratings[i][v]=self.ratings[i,v]
-                u_id = i
-                v_id = v
-                r = self.ratings[i, v]
+
+        ratings = np.zeros(shape=[self.user_count,self.paper_count],dtype=np.int32)
+        for user, user_ratings in enumerate(ratings_[fold]):
+            if add_negative_samples and not test:
+                user_ratings.extend(self.get_negative_samples(user_ratings,[], self.paper_count))
+            for item in user_ratings:
+                ratings[user][item] = 1
+
+        nonzero_u_idx = ratings.nonzero()[0]
+        nonzero_v_idx = ratings.nonzero()[1]
+        num_rating = np.count_nonzero(ratings)
+        idx = np.arange(num_rating)
+        np.random.shuffle(idx)
+
+        for sample in range(num_rating):
+                u_id = nonzero_u_idx[idx[sample]]
+                v_id = nonzero_v_idx[idx[sample]]
+                r = self.ratings[u_id,v_id]
                 doc = np.array(self.all_documents[v_id])
                 yield u_id, v_id, int(r), doc
 
