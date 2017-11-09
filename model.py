@@ -38,7 +38,10 @@ class Model():
         self.batch_pointer = tf.Variable(0, name="batch_pointer", trainable=False, dtype=tf.int32)
         self.inc_batch_pointer_op = tf.assign(self.batch_pointer, self.batch_pointer + 1)
 
-        outputs,init_ops = get_input_dataset(train_filename,test_filename, batch_size=self.batch_size)
+        self.train_filename = tf.placeholder_with_default(train_filename,shape=(),name='train_filename')
+        self.test_filename = tf.placeholder_with_default(test_filename,shape=(),name='test_filename')
+
+        outputs,init_ops = get_input_dataset(self.train_filename,self.test_filename, batch_size=self.batch_size)
         self.u_idx,self.v_idx, self.r, self.input_text, self.seq_lengths = outputs
 
         confidence = tf.constant(confidence_matrix, dtype=tf.float32, shape=confidence_matrix.shape,
@@ -135,19 +138,16 @@ class Model():
 
             # RNN output layer:
             # avg pool layer [batch_size, embedding_dim]
-            self.G = tf.reduce_mean(self.Yr, 1)
+            self.rnn_output = tf.reduce_mean(self.Yr, 1)
 
-        #Update RNN output
-        with tf.device("/cpu:0"):
-            # RNN output [num_items, embedding_dim]
-            self.RNN = tf.get_variable(shape=[self.m, self.k], name='RNN_output', trainable=False, dtype=tf.float32
-                                       ,initializer=tf.constant_initializer(0.))
-            self.update_rnn_output = tf.scatter_update(self.RNN, self.v_idx, self.G)
 
         use_attribues= True
+        sum_joint_output = False
+        fc_joint_output = True
+        att_ouput_dim = 50
         if use_attribues:
             ## Attributes component
-            self.att_output = self.attribute_module(features_matrix,args.num_layers)
+            self.att_output = self.attribute_module(features_matrix,args.num_layers,(att_ouput_dim if fc_joint_output else self.k))
 
         # Free some ram
         del features_matrix
@@ -174,10 +174,21 @@ class Model():
 
 
         with tf.name_scope('joint_output'):
-            self.F = tf.add(self.V_embed,self.G)
-
             if use_attribues:
-                self.F = tf.add(self.F,self.att_output)
+                if fc_joint_output:
+                    # concatonate the rnn output and the attributes output
+                    self.Q = tf.concat([self.rnn_output, self.att_output], 1)
+                    self.fc_layer = tf.layers.dense(inputs=self.Q, units=self.k, activation=tf.nn.relu)
+                    self.F = tf.add(self.V_embed, self.fc_layer)
+
+                elif sum_joint_output:
+                    self.F = tf.add(self.V_embed, self.rnn_output)
+                    self.F = tf.add(self.F, self.att_output)
+            else:
+                self.F = tf.add(self.V_embed, self.rnn_output)
+
+
+
 
             self.r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.F), reduction_indices=1)
 
@@ -187,18 +198,47 @@ class Model():
 
             multi_task = args.multi_task
 
+        with tf.name_scope('Tag_prediction'):
             if multi_task:
                 # Tag prediction task
                 tags_loss = self.tag_module(tags_count,self.k)
 
-        # Update predicted ratings matrix
-        with tf.device("/cpu:0"):
-            # RNN output [num_items, embedding_dim]
-            self.predicted_matrix = tf.get_variable(shape=[self.n, self.m], name='Predicted_ratings',
-                                                    trainable=False, dtype=tf.float32
-                                                    , initializer=tf.constant_initializer(0.))
-            self.update_predicted_matrix = tf.scatter_nd_update(self.predicted_matrix,
-                                                                        indices=u_v_idx, updates=self.r_hat)
+
+        with tf.name_scope('update_doc_att_embedding'):            # RNN output [num_items, embedding_dim]
+            # Update RNN and/or attribute joint output
+            with tf.device("/cpu:0"):
+                # RNN and/or attribute joint output [num_items, embedding_dim]
+                self.doc_embed = tf.get_variable(shape=[self.m, self.k], name='doc_embed', trainable=False,
+                                                 dtype=tf.float32
+                                                 , initializer=tf.constant_initializer(0.))
+                self.update_doc_embed = tf.scatter_update(self.doc_embed, self.v_idx, self.rnn_output)
+
+                if use_attribues:
+                    self.att_embed = tf.get_variable(shape=[self.m, (att_ouput_dim if fc_joint_output else self.k)],
+                                                     name='att_embed', trainable=False, dtype=tf.float32
+                                                 , initializer=tf.constant_initializer(0.))
+                    self.update_att_embed = tf.scatter_update(self.att_embed, self.v_idx, self.att_output)
+
+
+                    self.joint_doc_att_embed = tf.get_variable(shape=[self.m,  self.k],
+                                                     name='joint_doc_att_embed', trainable=False, dtype=tf.float32
+                                                 , initializer=tf.constant_initializer(0.))
+                    self.update_doc_att_embed = tf.scatter_update(self.joint_doc_att_embed, self.v_idx, self.fc_layer)
+
+        with tf.name_scope('Calculate_prediction_matrix'):
+            # Get predicted ratings matrix
+            if use_attribues:
+                self.R_hat = tf.add(self.V, self.joint_doc_att_embed)
+            else:
+                self.R_hat = tf.add(self.V, self.doc_embed)
+
+            self.R_hat = tf.matmul(self.U, self.R_hat,transpose_b=True)
+
+            # self.r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.V_embed), reduction_indices=1)
+            self.R_hat = tf.add(self.R_hat, tf.reshape(self.U_bias,shape=[-1,1]))
+            self.get_prediction_matrix = tf.add(self.R_hat, self.V_bias, name="Prediction_matrix")
+
+
         with tf.name_scope('loss'):
             # Loss function
             # self.MAE = tf.reduce_mean(tf.abs(tf.subtract(self.r, self.r_hat)))
@@ -268,13 +308,14 @@ class Model():
         self.saver = tf.train.Saver()
 
 
-    def attribute_module(self, features_matrix,  n_layers, ):
+    def attribute_module(self, features_matrix,  n_layers, output_dim):
         '''
 
         :param input:
         :param n_layers:
         :return:
         '''
+
         # Implementation of a simple MLP network with one hidden layer.
         x_size = features_matrix.shape[1]
 
@@ -296,7 +337,7 @@ class Model():
         n_hidden_1 = int(self.training_samples_count / (alpha * (x_size + self.k)))  # 1st layer number of neurons
         n_hidden_2 = int(self.training_samples_count / (alpha * (x_size + self.k)))
         n_hidden_3 = int(self.training_samples_count / (alpha * (x_size + self.k)))  # 1st layer number of neurons
-        y_size = self.k
+        y_size = output_dim
 
 
         with tf.variable_scope('Attributes_component_%d-layers' % (n_layers)):
@@ -351,7 +392,7 @@ class Model():
 
             tags_probalities = tf.einsum('ai,bi->ab',self.F, tags_embeddings)
 
-            # todo: add downweights for predicting the unobserved tags
+            # todo: add down weights for predicting the unobserved tags
 
             tags_loss = tf.losses.sigmoid_cross_entropy(tags_actual,tags_probalities,)
         return tags_loss

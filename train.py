@@ -54,6 +54,9 @@ def main():
                         help='save frequency')
     parser.add_argument('--multi_task', action='store_true',
                         help='Multi-task learning')
+    parser.add_argument('--use_att', action='store_true',
+                        help='Learn attribute embeddins')
+
     parser.add_argument('--learning_rate', type=float, default=0.000001,
                         help='learning rate')
 
@@ -324,31 +327,41 @@ def train(args):
             # for step in range(1):
                 print('{0}: Epoch {1}'.format(time.strftime("%d:%m-%H:%M:"), step))
                 print('Training .....................................')
+
                 # Initialize the training dataset iterator
                 sess.run(model.train_init_op)
+
                 feed_dict = construct_feed(bi_state_fw, bi_state_bw,
                                            dropout_embed_layer, dropout_bidir_layer, dropout_second_layer)
 
                 fetches = [model.joint_train_step,
-                           model.update_rnn_output,
-                           model.u_idx, model.v_idx,
-                           model.U, model.V, model.RNN, model.U_bias, model.V_bias, model.att_output,
-                           model.update_predicted_matrix,
+                           # model.u_idx, model.v_idx,
+                           # model.U, model.V, model.doc_embed, model.U_bias, model.V_bias, model.att_output,
                            model.bi_output_state_fw, model.bi_output_state_bw, model.H,
-                           model.RMSE, model.summary_op, model.inc_batch_pointer_op]
+                           model.RMSE, model.summary_op, model.inc_batch_pointer_op,
+                           model.update_doc_embed]
+                if args.use_att:
+                    fetches.extend([model.update_att_embed, model.update_doc_att_embed])
+
                 start = time.time()
 
                 for batch in range(nb_batches_train):
                 # for batch in range(1):
-                    _, _, u_idx, v_idx, U, V, rnn, U_b, V_b, att_ouput, \
-                    prediction_matrix, bi_out_fw, bi_out_bw, final_state, rmse, summary_str, _ = \
+                    # u_idx, v_idx, U, V, rnn, U_b, V_b, att_ouput, \
+                    fetched = \
                         sess.run(fetches, feed_dict=feed_dict)
+                    if args.use_att:
+                        _, bi_out_fw, bi_out_bw, final_state, rmse, summary_str, _, doc_embed, att_embed, joint_embed = fetched
+
+                    else:
+                        _,bi_out_fw, bi_out_bw, final_state, rmse, summary_str, _, doc_embed = fetched
                     # print every 500 iteration
                     if batch // 10 % 50 == 0:
                         print("Epoch {0}, batch {1}".format(step, batch))
                     train_writer.add_summary(summary_str, global_step=(step * nb_batches_train + batch))
                 end = time.time()
                 print('Epoch {0}, finished in {1}'.format(step, end - start))
+
                 # todo: check the condition
                 if step // 1 % 5 == 0:
                     print('{0}:Validation ............'.format(time.strftime("%d:%m-%H:%M:")))
@@ -364,9 +377,8 @@ def train(args):
                         init_state = sess.run(model.initial_state)
                         # don't dropout
                         feed_dict = construct_feed(test_bi_fw, test_bi_bw, 0, 0, 0)
-                        for batch in range(2):
-                            # for batch in range(nb_batches_val):
-
+                        # for batch in range(2):
+                        for batch in range(nb_batches_val):
                             rmse_test, summary_str = sess.run(
                                 [model.RMSE, model.summary_op], feed_dict=feed_dict)
                             test_writer.add_summary(summary_str, global_step=(step * nb_batches_val + batch))
@@ -414,6 +426,7 @@ def train(args):
                 bi_state_fw = bi_out_fw
                 bi_state_bw = bi_out_bw
 
+            prediction_matrix = sess.run(model.get_prediction_matrix)
             fold_dir = os.path.dirname(os.path.dirname(path_training))
             predicted_ratings_file = os.path.join(fold_dir, 'score.npy')
             np.save(predicted_ratings_file, prediction_matrix)

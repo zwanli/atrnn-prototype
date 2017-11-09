@@ -71,16 +71,17 @@ def predict(args):
     if args.init_from is not None:
         # check if all necessary files exist
         assert os.path.isdir(args.init_from), " %s must be a directory" % args.init_from
-        assert os.path.isfile(
-            os.path.join(args.init_from, "config.pkl")), "config.pkl file does not exist in path %s" % args.init_from
+        # assert os.path.isfile(
+        #     os.path.join(args.init_from, "config.pkl")), "config.pkl file does not exist in path %s" % args.init_from
 
         ckpt = tf.train.get_checkpoint_state(args.init_from)
         assert ckpt, "No checkpoint found"
         assert ckpt.model_checkpoint_path, "No model path found in checkpoint"
 
         # open old config and check if models are compatible
-        with open(os.path.join(args.init_from, 'config.pkl'), 'rb') as f:
-            saved_model_args = pickle.load(f)
+        # with open(os.path.join(args.init_from, 'config.pkl'), 'rb') as f:
+        #     saved_model_args = pickle.load(f)
+
         # need_be_same = ["model", "rnn_size", "num_layers", "seq_length"]
         # for checkme in need_be_same:
         #     assert vars(saved_model_args)[checkme] == vars(args)[
@@ -94,5 +95,15 @@ def predict(args):
         # assert saved_words == data_loader.words, "Data and loaded model disagree on word set!"
         # assert saved_vocab == data_loader.vocab, "Data and loaded model disagree on dictionary mappings!"
 
+        with tf.Session() as sess:
+            meta_graph = os.path.join(args.init_from, '04:11-08:54:-citeulike-a-warm-300-f5model.ckpt.meta')
+            saver = tf.train.import_meta_graph(meta_graph)
+            saver.restore(sess, tf.train.latest_checkpoint(args.init_from))
+            rnn = sess.run(['RNN_output:0'])
+            print ([n.name for n in tf.get_default_graph().as_graph_def().node])
 
     # model = Model(args, rating_matrix, embeddings, confidence, train_filename=,test_filename=)
+
+
+if __name__ == '__main__':
+    main()

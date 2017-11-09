@@ -987,6 +987,8 @@ def test_loss():
     print(RMSE.eval())
     print(l2_loss.eval())
 
+def fn():
+    return 1,2,3,4
 
 def main():
     # batch_size = 1
@@ -1103,12 +1105,22 @@ def main():
 
     # test_tf_scatter_update()
 
-    # score_file ='/home/wanli/data/Extended_ctr/citeulike_a_extended/outof-matrix-item_folds/fold-5/score.npy'
+    # score_file ='/home/wanli/data/Extended_ctr/citeulike_a_extended/in-matrix-item_folds/fold-1/score.npy'
     # score = np.load(score_file)
     # a = 1
 
-    test_loss()
+    # # b = np.array(np.random.rand(2,3),dtype=np.float64)
+    # b = [[ 0.76327468e-10,  0.36366175,  0.3757063 ],[ 0.5597608,   0.77586819,  0.35938623]]
+    # np.save('b',b)
+    # print(b)
+    #
+    # b= np.load('b.npy')
+    #
+    # print(b)
 
+    # test_loss()
+
+    b = fn()
 
 if __name__ == '__main__':
     main()
