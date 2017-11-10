@@ -56,6 +56,10 @@ def main():
                         help='Multi-task learning')
     parser.add_argument('--use_att', action='store_true',
                         help='Learn attribute embeddins')
+    parser.add_argument('--summation', action='store_true',
+                        help='Sum the attribute embeddings and the rnn output')
+    parser.add_argument('--fc_layer', action='store_true',
+                        help='Add a FC layer to get the joint output of the rnn and attributes embeddings')
 
     parser.add_argument('--learning_rate', type=float, default=0.000001,
                         help='learning rate')
@@ -239,8 +243,7 @@ def train(args):
     confidence_matrix = parser.get_confidence_matrix(mode=confidence_mode)
     # parser.get_confidence_matrix()
 
-    with open(os.path.join(args.save_dir, 'config.pkl'), 'wb') as f:
-        pickle.dump(args, f, pickle.HIGHEST_PROTOCOL)
+
 
     print('Vocabulary size {0}'.format(parser.words_count))
 
@@ -285,6 +288,9 @@ def train(args):
     nb_batches_val = int(math.ceil(test_sample_count / args.batch_size))
     print(
         'Number of test batches {0}, number of samples {1}'.format(nb_batches_val, test_sample_count))
+
+
+
     graph = tf.Graph()
     with graph.as_default():
         args.training_samples_count = train_sample_count
@@ -298,7 +304,7 @@ def train(args):
         # sess = tf_debug.LocalCLIDebugWrapperSession(sess)
         # sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
         print('Saving graph to disk...')
-        # train_writer.add_graph(sess.graph)
+        train_writer.add_graph(sess.graph)
         # valid_writer.add_graph(sess.graph)
         # test_writer.add_graph(sess.graph)
         dropout_second_layer = 0.2
@@ -431,7 +437,9 @@ def train(args):
             predicted_ratings_file = os.path.join(fold_dir, 'score.npy')
             np.save(predicted_ratings_file, prediction_matrix)
 
-            model.saver.save(sess, fold_dir + "/{0}model.ckpt".format(time.strftime(dir_prefix)))
+            model.saver.save(sess, fold_dir + '/{0}-model.ckpt'.format(time.strftime(dir_prefix)))
+            with open(os.path.join(fold_dir, '{0}-config.pkl'.format(time.strftime(dir_prefix))), 'wb') as f:
+                pickle.dump(args, f, pickle.HIGHEST_PROTOCOL)
             # print('Best test rmse:', best_test_rmse, 'Best test mae', best_test_mae, sep=' ')
             train_writer.close()
             test_writer.close()

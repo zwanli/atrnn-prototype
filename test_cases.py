@@ -1098,7 +1098,7 @@ def main():
     # print(r)
     # print(np.mean([ndcg_at_k(x, y) for x,y in zip(r,actual)]))
 
-    # test_tags_module()
+    test_tags_module()
     # test_parse_tags()
     # test_tags_module_sparse()
     # test_attributes_module()
@@ -1120,7 +1120,7 @@ def main():
 
     # test_loss()
 
-    b = fn()
+    # b = fn()
 
 if __name__ == '__main__':
     main()

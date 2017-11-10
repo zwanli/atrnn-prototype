@@ -141,9 +141,9 @@ class Model():
             self.rnn_output = tf.reduce_mean(self.Yr, 1)
 
 
-        use_attribues= True
-        sum_joint_output = False
-        fc_joint_output = True
+        use_attribues= args.use_att
+        sum_joint_output = args.summhtoation
+        fc_joint_output = args.fc_layer
         att_ouput_dim = 50
         if use_attribues:
             ## Attributes component
@@ -157,8 +157,6 @@ class Model():
             self.U = weight_variable([self.n, self.k], 'U')
             # V matrix [num_items, embeddings_dim]
             self.V = weight_variable([self.m, self.k], 'V')
-
-
 
             # U, V biases
             self.U_bias = bias_variable([self.n], 'U_bias')
@@ -223,7 +221,10 @@ class Model():
                     self.joint_doc_att_embed = tf.get_variable(shape=[self.m,  self.k],
                                                      name='joint_doc_att_embed', trainable=False, dtype=tf.float32
                                                  , initializer=tf.constant_initializer(0.))
-                    self.update_doc_att_embed = tf.scatter_update(self.joint_doc_att_embed, self.v_idx, self.fc_layer)
+                    if fc_joint_output:
+                        self.update_doc_att_embed = tf.scatter_update(self.joint_doc_att_embed, self.v_idx, self.fc_layer)
+                    elif sum_joint_output:
+                        self.update_doc_att_embed = tf.add(self.att_output, self.rnn_output)
 
         with tf.name_scope('Calculate_prediction_matrix'):
             # Get predicted ratings matrix
@@ -394,7 +395,14 @@ class Model():
 
             # todo: add down weights for predicting the unobserved tags
 
-            tags_loss = tf.losses.sigmoid_cross_entropy(tags_actual,tags_probalities,)
+            # tags_loss = tf.losses.sigmoid_cross_entropy(tags_actual,tags_probalities,)
+
+            tags_sigmoid = tf.nn.sigmoid(tags_probalities)
+            unobserved_tags_weight = 0.01
+            tags_loss = -tf.reduce_mean(
+                ((tags_actual * tf.log(tags_sigmoid)) + (unobserved_tags_weight* (1 - tags_actual) * tf.log(1 - tags_sigmoid))),
+                name='tags_loss')
+
         return tags_loss
 
 
