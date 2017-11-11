@@ -1,3 +1,5 @@
+from builtins import input
+
 import numpy as np
 import tensorflow as tf
 import math
@@ -417,8 +419,8 @@ def test_4():
     batch_size = 10
     with tf.device("/cpu:0"):
         with tf.variable_scope('input'):
-            test_filename = '/home/wanli/data/Extended_ctr/dummy_test_1.tfrecords'
-            train_filename = '/home/wanli/data/Extended_ctr/dummy_train_1.tfrecords'
+            test_filename = '/home/wanli/data/Extended_ctr/dummy/cold-test-300/dummy_test_1.tfrecords'
+            train_filename = '/home/wanli/data/Extended_ctr/dummy/cold-train-300/dummy_train_1.tfrecords'
             example_count_train = utils.num_samples(train_filename)
             example_count_validation = utils.num_samples(test_filename)
 
@@ -480,7 +482,7 @@ def test_4():
                 print('Training .....................................')
                 sess.run(training_init_op)
                 for _ in range(nb_batches_train):
-                    output = sess.run([u_idx_t, v_idx_t])
+                    output = sess.run([input_t])
                     output = sess.run(c_g)
                     print(output)
                     # print(np.count_nonzero(np.asarray(output[:,0])))
@@ -1071,7 +1073,7 @@ def main():
     #     finally:
     #         coord.request_stop()
     #         coord.join(threads)
-    # test_4()
+    test_4()
 
 
     # print('=============================================\n only test set')
@@ -1098,7 +1100,7 @@ def main():
     # print(r)
     # print(np.mean([ndcg_at_k(x, y) for x,y in zip(r,actual)]))
 
-    test_tags_module()
+    # test_tags_module()
     # test_parse_tags()
     # test_tags_module_sparse()
     # test_attributes_module()

@@ -6,6 +6,7 @@ import os
 from gensim import corpora
 import gensim
 
+from nltk.stem.snowball import EnglishStemmer
 import tempfile
 # TEMP_FOLDER = tempfile.gettempdir()
 # print('Folder "{}" will be used to save temporary dictionary and corpus.'.format(TEMP_FOLDER))
@@ -48,10 +49,11 @@ class MySentences(object):
 
 def generate_sentences(filename,out_path):
     c = 0
+    setmmer = EnglishStemmer()
     with open(out_path, 'w') as outfile:
         for line in open(filename):
             sentences = sent_tokenize(line)
-            sentences = [word_tokenize(x.lower()) for x in sentences]
+            sentences = [[setmmer.stem(word) for word in word_tokenize(x.lower())] for x in sentences]
             for sentence in sentences:
                 c +=1
                 outfile.write(' '.join(sentence )+ '\n')
@@ -89,6 +91,7 @@ def extract_title_abstract(in_path):
     print("Writing file %s" % out_path)
     print('Total number of papers %d' %total)
     print('Papers that don\'t have abstract %d' % count_with_abstracts)
+
 def main():
 
     acm_dir = '/home/wanliz/data/'
@@ -96,19 +99,19 @@ def main():
     acm_title_abstract_file = os.path.join(acm_dir,'acm_title_abstract.txt')
     if not os.path.exists(acm_title_abstract_file ):
         extract_title_abstract(acm_file)
-    acm_sentences_file = os.path.join(acm_dir, 'acm_sentences.txt')
+    acm_sentences_file = os.path.join(acm_dir, 'acm_sentences_stemmed.txt')
     # acm_sentences_file = os.path.join(acm_dir, 'acm_sample.txt')
     if not os.path.exists(acm_sentences_file):
         generate_sentences(acm_title_abstract_file,acm_sentences_file)
     sentences = MySentences(acm_sentences_file)
 
-    model = gensim.models.Word2Vec(sentences,iter=5,min_count=5,workers=7,sg=0,size=200)
+    model = gensim.models.Word2Vec(sentences,iter=50,min_count=5,workers=7,sg=0,size=200)
     acm_model_file = os.path.join(acm_dir,'model')
     model.save(acm_model_file)
     word_vectors = model.wv
 
-    word_vectors.save(os.path.join(acm_dir,'word_embeddings'))
-    word_vectors.save_word2vec_format(os.path.join(acm_dir,'word_embeddings.txt'),binary=False)
+    word_vectors.save(os.path.join(acm_dir,'stemmed_word_embeddings'))
+    word_vectors.save_word2vec_format(os.path.join(acm_dir,'stemmed_word_embeddings.txt'),binary=False)
     del model
 
 

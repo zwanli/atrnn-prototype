@@ -58,7 +58,7 @@ def main():
                         help='Learn attribute embeddins')
     parser.add_argument('--summation', action='store_true',
                         help='Sum the attribute embeddings and the rnn output')
-    parser.add_argument('--fc_layer', action='store_true',
+    parser.add_argument('-', action='store_true',
                         help='Add a FC layer to get the joint output of the rnn and attributes embeddings')
 
     parser.add_argument('--learning_rate', type=float, default=0.000001,
@@ -136,13 +136,13 @@ def process_input(args, parser):
 
     for fold in range(args.folds):
         train_folder = os.path.join(split_folder, 'fold-{}'.format(fold + 1),
-                                    '{0}-{1}'.format('train', args.max_length))
+                                    '{0}'.format('train'))
         try:
             os.makedirs(train_folder)
         except OSError as e:
             if e.errno != errno.EEXIST:
                 raise
-        test_folder = os.path.join(split_folder, 'fold-{}'.format(fold + 1), '{0}-{1}'.format('test', args.max_length))
+        test_folder = os.path.join(split_folder, 'fold-{}'.format(fold + 1), '{0}'.format('test'))
         try:
             os.makedirs(test_folder)
         except OSError as e:

@@ -10,8 +10,8 @@ import numpy as np
 import datetime
 from prettytable import PrettyTable
 import pandas as pd
-import pandas as pd
 from sklearn import preprocessing
+from nltk.stem.snowball import EnglishStemmer
 
 maxInt = sys.maxsize
 decrement = True
@@ -140,7 +140,7 @@ def is_less_frequent(word,threshold):
     return True
 
 
-def process_documents(path, dataset):
+def process_documents(path, dataset, stem=True):
     """
      Parses paper raw data
      :return: A tuple of Papers' labels and abstracts, where abstracts are returned as strings
@@ -156,6 +156,8 @@ def process_documents(path, dataset):
         first_line = True
         documents = {}
         row_length = 0
+        if stem:
+            stemmer = EnglishStemmer()
         for line in reader:
             if first_line:
                 labels = line
@@ -169,8 +171,12 @@ def process_documents(path, dataset):
                 paper = line[1]+' '+line[4]
             sentences = sent_tokenize(paper)
             sentences = [word_tokenize(x) for x in sentences]
+
             #add the word to the raw data vocabulary
-            documents[doc_id] = [add_word(word,vocab) for sentence in sentences for word in sentence]
+            if stem:
+                documents[doc_id] = [add_word(stemmer.stem(word),vocab) for sentence in sentences for word in sentence]
+            else:
+                documents[doc_id] = [add_word(word,vocab) for sentence in sentences for word in sentence]
 
     # process raw data,
     # - remove less frequent words

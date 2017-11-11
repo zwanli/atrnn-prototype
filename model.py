@@ -43,7 +43,9 @@ class Model():
 
         outputs,init_ops = get_input_dataset(self.train_filename,self.test_filename, batch_size=self.batch_size)
         self.u_idx,self.v_idx, self.r, self.input_text, self.seq_lengths = outputs
+        self.input_text = self.input_text[:,:self.maxlen]
 
+        # Confidence matrix
         confidence = tf.constant(confidence_matrix, dtype=tf.float32, shape=confidence_matrix.shape,
                                  name='confidence')
         # Free some ram

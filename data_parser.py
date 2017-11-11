@@ -359,6 +359,7 @@ class DataParser(object):
                 # tokens = self.raw_data[doc_id].split()
                 word_idx = [self.get_word_id(word) for word in self.raw_data[doc_id].split()]
                 self.all_documents[doc_id] = word_idx
+
         # TODO: Get word ids when not using pre-trained word embeddings
         return self.all_documents
 

@@ -69,7 +69,7 @@ def  convert_to_tfrecords(path, parser,fold, maxlen, split_method, test=False):
         # if rating == 0:
         #     print (u_id,v_id)
         feature_lists = tf.train.FeatureLists(feature_list={
-            "abstract": _int64_feature_list(doc[:maxlen]) })
+            "abstract": _int64_feature_list(doc) })
         sequence_example = tf.train.SequenceExample(
             context=context, feature_lists=feature_lists)
         writer.write(sequence_example.SerializeToString())
