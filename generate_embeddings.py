@@ -94,7 +94,7 @@ def extract_title_abstract(in_path):
 
 def main():
 
-    acm_dir = '/home/wanliz/data/'
+    acm_dir = '/home/wanli/data/'
     acm_file = os.path.join(acm_dir,'acm.txt')
     acm_title_abstract_file = os.path.join(acm_dir,'acm_title_abstract.txt')
     if not os.path.exists(acm_title_abstract_file ):

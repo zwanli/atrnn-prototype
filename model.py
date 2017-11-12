@@ -144,7 +144,7 @@ class Model():
 
 
         use_attribues= args.use_att
-        sum_joint_output = args.summhtoation
+        sum_joint_output = args.summation
         fc_joint_output = args.fc_layer
         att_ouput_dim = 50
         if use_attribues:
@@ -253,7 +253,8 @@ class Model():
             self.RMSE = tf.sqrt(self.MSE_loss)
 
             if multi_task:
-                self.reg_loss = tf.add(self.MSE_loss, tags_loss)
+                mt_lambda = args.mt_lambda
+                self.reg_loss = tf.add(mt_lambda *self.MSE_loss, (1- mt_lambda)*tags_loss)
             else:
                 self.reg_loss = tf.add(self.MSE_loss, self.l2_reg)
 

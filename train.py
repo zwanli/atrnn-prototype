@@ -58,12 +58,13 @@ def main():
                         help='Learn attribute embeddins')
     parser.add_argument('--summation', action='store_true',
                         help='Sum the attribute embeddings and the rnn output')
-    parser.add_argument('-', action='store_true',
+    parser.add_argument('--fc_layer', action='store_true',
                         help='Add a FC layer to get the joint output of the rnn and attributes embeddings')
 
     parser.add_argument('--learning_rate', type=float, default=0.000001,
                         help='learning rate')
-
+    parser.add_argument('--mt_lambda', type=float, default=0.9,
+                        help='Multi-task hyperparamter labmda')
     parser.add_argument('--gpu_mem', type=float, default=0.666,
                         help='%% of gpu memory to be allocated to this process. Default is 66.6%%')
     # parser.add_argument('--decay_rate', type=float, default=0.97,

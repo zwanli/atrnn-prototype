@@ -10,5 +10,5 @@ and the project [Word-rnn-tensorflow](https://github.com/hunkim/word-rnn-tensorf
 2- move the embebeddings file to write directory, and rename it w2v_200.txt.
 
 3- run preprocessing.py
-
+python preprocessing.py --data_dir ~/data/Extended_ctr/ --dataset citeulike-a --embedding_dir ~/data/cbow_w2v/ --embedding_dim 200 --mode d
 4- run train.py
