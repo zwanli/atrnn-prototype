@@ -441,7 +441,7 @@ def train(args):
             np.save(predicted_ratings_file, prediction_matrix)
 
             if args.save:
-                model.saver.save(sess, fold_dir + '/{0}-model.ckpt'.format(time.strftime(dir_prefix)))
+                 model.saver.save(sess, fold_dir + '/{0}-model.ckpt'.format(time.strftime(dir_prefix)))
             with open(os.path.join(fold_dir, '{0}-config.pkl'.format(time.strftime(dir_prefix))), 'wb') as f:
                 pickle.dump(args, f, pickle.HIGHEST_PROTOCOL)
             # print('Best test rmse:', best_test_rmse, 'Best test mae', best_test_mae, sep=' ')

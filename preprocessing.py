@@ -452,6 +452,8 @@ def main():
                         help='dimension of the embeddings', choices=['50', '100', '200', '300'])
     parser.add_argument('--mode', type=str, default='all',
                         help='Choose what to process, either documents or attributes, or all', choices=['a', 'd', 'all'])
+    parser.add_argument('--stem', action='store_true',
+                        help='Stem words')
     args = parser.parse_args()
 
     if args.dataset == 'citeulike-a':
@@ -476,7 +478,7 @@ def main():
             use_w2v = True
         load_embeddings(args.embedding_dir,args.embedding_dim,keep_embed=True,w2v=use_w2v)
 
-        process_documents(raw_data_path,args.dataset)
+        process_documents(raw_data_path,args.dataset,stem=args.stem)
 
         embeddings_path = os.path.join(dataset_folder, '{0}-embeddings-{1}-{2}.tfrecord'.
                                        format(args.dataset,args.embedding_dim,'w2v' if use_w2v else 'glove'))

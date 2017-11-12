@@ -5,6 +5,7 @@ from nltk.tokenize import word_tokenize
 import os
 from gensim import corpora
 import gensim
+import argparse
 
 from nltk.stem.snowball import EnglishStemmer
 import tempfile
@@ -47,13 +48,17 @@ class MySentences(object):
         for sentence in open(self.filename):
             yield sentence.split()
 
-def generate_sentences(filename,out_path):
+def generate_sentences(filename,out_path, stem=False):
     c = 0
-    setmmer = EnglishStemmer()
+    if stem:
+        setmmer = EnglishStemmer()
     with open(out_path, 'w') as outfile:
         for line in open(filename):
             sentences = sent_tokenize(line)
-            sentences = [[setmmer.stem(word) for word in word_tokenize(x.lower())] for x in sentences]
+            if stem:
+                sentences = [[setmmer.stem(word) for word in word_tokenize(x.lower())] for x in sentences]
+            else:
+                sentences = [word_tokenize(x.lower()) for x in sentences]
             for sentence in sentences:
                 c +=1
                 outfile.write(' '.join(sentence )+ '\n')
@@ -93,25 +98,43 @@ def extract_title_abstract(in_path):
     print('Papers that don\'t have abstract %d' % count_with_abstracts)
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--corpora', type=str, default='/home/wanliz/data/acm.txt',
+                        help='The corpora file used to generate embeddings')
+    parser.add_argument('--iter', type=int, default=30,
+                        help='Number of iterations')
+    parser.add_argument('--stem', action='store_true',
+                        help='Stem words')
+    parser.add_argument('--embedding_dim', type=int, default=200,
+                        help='dimension of the embeddings', choices=['50', '100', '200', '300'])
+    args = parser.parse_args()
 
-    acm_dir = '/home/wanli/data/'
-    acm_file = os.path.join(acm_dir,'acm.txt')
+
+    acm_file = args.corpora
+    acm_dir = os.path.dirname(acm_file)
     acm_title_abstract_file = os.path.join(acm_dir,'acm_title_abstract.txt')
     if not os.path.exists(acm_title_abstract_file ):
         extract_title_abstract(acm_file)
-    acm_sentences_file = os.path.join(acm_dir, 'acm_sentences_stemmed.txt')
+
+    if args.stem:
+        acm_sentences_file = os.path.join(acm_dir, 'acm_sentences_stemmed.txt')
+    else:
+        acm_sentences_file = os.path.join(acm_dir, 'acm_sentences.txt')
     # acm_sentences_file = os.path.join(acm_dir, 'acm_sample.txt')
     if not os.path.exists(acm_sentences_file):
         generate_sentences(acm_title_abstract_file,acm_sentences_file)
     sentences = MySentences(acm_sentences_file)
 
-    model = gensim.models.Word2Vec(sentences,iter=50,min_count=5,workers=7,sg=0,size=200)
+    model = gensim.models.Word2Vec(sentences,iter=args.iter,min_count=5,workers=7,sg=0,size=args.embedding_dim)
     acm_model_file = os.path.join(acm_dir,'model')
     model.save(acm_model_file)
     word_vectors = model.wv
-
-    word_vectors.save(os.path.join(acm_dir,'stemmed_word_embeddings'))
-    word_vectors.save_word2vec_format(os.path.join(acm_dir,'stemmed_word_embeddings.txt'),binary=False)
+    if args.stem:
+        word_vectors.save(os.path.join(acm_dir,'stemmed_word_embeddings'))
+        word_vectors.save_word2vec_format(os.path.join(acm_dir,'stemmed_word_embeddings.txt'),binary=False)
+    else:
+        word_vectors.save(os.path.join(acm_dir, 'word_embeddings'))
+        word_vectors.save_word2vec_format(os.path.join(acm_dir, 'word_embeddings.txt'), binary=False)
     del model
 
 
