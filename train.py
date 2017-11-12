@@ -67,6 +67,8 @@ def main():
                         help='Multi-task hyperparamter labmda')
     parser.add_argument('--gpu_mem', type=float, default=0.666,
                         help='%% of gpu memory to be allocated to this process. Default is 66.6%%')
+    parser.add_argument('--save', action='store_true',
+                        help='Save the model graph')
     # parser.add_argument('--decay_rate', type=float, default=0.97,
     #                     help='decay rate for rmsprop')
     # parser.add_argument('--grad_clip', type=float, default=5.,
@@ -438,7 +440,8 @@ def train(args):
             predicted_ratings_file = os.path.join(fold_dir, 'score.npy')
             np.save(predicted_ratings_file, prediction_matrix)
 
-            model.saver.save(sess, fold_dir + '/{0}-model.ckpt'.format(time.strftime(dir_prefix)))
+            if args.save:
+                model.saver.save(sess, fold_dir + '/{0}-model.ckpt'.format(time.strftime(dir_prefix)))
             with open(os.path.join(fold_dir, '{0}-config.pkl'.format(time.strftime(dir_prefix))), 'wb') as f:
                 pickle.dump(args, f, pickle.HIGHEST_PROTOCOL)
             # print('Best test rmse:', best_test_rmse, 'Best test mae', best_test_mae, sep=' ')
