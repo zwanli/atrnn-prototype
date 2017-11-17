@@ -245,7 +245,7 @@ class Model():
             # Loss function
             # self.MAE = tf.reduce_mean(tf.abs(tf.subtract(self.r, self.r_hat)))
             self.l2_loss =tf.nn.l2_loss(tf.subtract(self.r, self.r_hat))
-            self.l2_reg = tf.multiply(self.reg_lambda_u, tf.nn.l2_loss(self.U))
+            self.l2_reg = tf.multiply(self.reg_lambda_u, tf.nn.l2_loss(self.U_embed))
 
             self.MSE_loss = tf.losses.mean_squared_error(self.r, self.r_hat, weights=confidence)
             self.RMSE = tf.sqrt(self.MSE_loss)
@@ -254,7 +254,7 @@ class Model():
                 mt_lambda = args.mt_lambda
                 self.reg_loss = tf.add(mt_lambda * tf.add(self.MSE_loss, self.l2_reg), (1- mt_lambda)*tags_loss)
             else:
-                self.l2_reg = tf.add(self.l2_reg, tf.multiply(self.reg_lambda_v, tf.nn.l2_loss(self.V)))
+                self.l2_reg = tf.add(self.l2_reg, tf.multiply(self.reg_lambda_v, tf.nn.l2_loss(self.V_embed)))
                 self.reg_loss = tf.add(self.MSE_loss, self.l2_reg)
 
 
