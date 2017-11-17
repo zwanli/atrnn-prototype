@@ -14,7 +14,8 @@ def bias_variable(shape, name):
 
 class Model():
     def __init__(self, args, ratings, embed,features_matrix,
-                 tags_count, confidence_matrix, train_filename, test_filename, enabel_dropout=False, reg_lambda=0.01):
+                 tags_count, confidence_matrix, train_filename, test_filename, enabel_dropout=False,
+                 reg_lambda_u=0.01,reg_lambda_v = 100):
         self.args = args
         self.dataset = args.dataset
         if args.model == 'rnn':
@@ -32,7 +33,8 @@ class Model():
         self.training_samples_count = args.training_samples_count
         self.learning_rate = args.learning_rate
         self.maxlen = args.max_length
-        self.reg_lambda = tf.constant(reg_lambda, dtype=tf.float32)
+        self.reg_lambda_u = tf.constant(reg_lambda_u, dtype=tf.float32)
+        self.reg_lambda_v = tf.constant(reg_lambda_v, dtype=tf.float32)
 
         self.batch_size = args.batch_size
         self.batch_pointer = tf.Variable(0, name="batch_pointer", trainable=False, dtype=tf.int32)
@@ -42,6 +44,7 @@ class Model():
         self.test_filename = tf.placeholder_with_default(test_filename,shape=(),name='test_filename')
 
         outputs,init_ops = get_input_dataset(self.train_filename,self.test_filename, batch_size=self.batch_size)
+        self.train_init_op, self.validation_init_op = init_ops
         self.u_idx,self.v_idx, self.r, self.input_text, self.seq_lengths = outputs
         self.input_text = self.input_text[:,:self.maxlen]
 
@@ -50,97 +53,87 @@ class Model():
                                  name='confidence')
         # Free some ram
         del confidence_matrix
-
         u_v_idx = tf.stack([self.u_idx, self.v_idx], axis=1)
         confidence = tf.gather_nd(confidence, u_v_idx)
 
-        # # limit the input_text sequence length [batch_size, max_lenght]
-        # # if self.input_text.shape[1] > self.maxlen:
-        # #     self.input_text = tf.slice(self.input_text, [0, 0], [-1, ])
-        # def f1():
-        #     return tf.slice(self.input_text, [0, 0], [-1, self.maxlen])
-        #
-        # def f2():
-        #     return self.input_text
-        # self.input_text = tf.cond(tf.less(self.maxlen,self.input_text.shape[1]),f1,f2)
 
-        self.train_init_op, self.validation_init_op = init_ops
 
-        self.dropout_second_layer = tf.placeholder(tf.float32, name='dropout_second_layer')
-        self.dropout_bidir_layer = tf.placeholder(tf.float32, name='dropout_bidir_layer')
-        self.dropout_embed_layer = tf.placeholder(tf.float32, name='dropout_embed_layer')
+        use_rnn = args.use_rnn
 
-        with tf.variable_scope('RNN'):
+        if use_rnn:
+            self.dropout_second_layer = tf.placeholder(tf.float32, name='dropout_second_layer')
+            self.dropout_bidir_layer = tf.placeholder(tf.float32, name='dropout_bidir_layer')
+            self.dropout_embed_layer = tf.placeholder(tf.float32, name='dropout_embed_layer')
+            with tf.variable_scope('RNN'):
+                with tf.device("/cpu:0"):
+                    vocab_size = args.vocab_size
+                    embedding_dim = args.embedding_dim
+                    embeddings = np.asarray(embed)
+                    embedding = tf.get_variable(name="embedding", shape=[vocab_size, embedding_dim],
+                                                 initializer=tf.constant_initializer(embeddings), trainable=False)
+                    inputs = tf.nn.embedding_lookup(embedding, self.input_text)
+                    if enabel_dropout:
+                        inputs = tf.contrib.layers.dropout(inputs, keep_prob=1.0-self.dropout_embed_layer)
 
-            with tf.device("/cpu:0"):
-                vocab_size = args.vocab_size
-                embedding_dim = args.embedding_dim
-                embeddings = np.asarray(embed)
-                embedding = tf.get_variable(name="embedding", shape=[vocab_size, embedding_dim],
-                                             initializer=tf.constant_initializer(embeddings), trainable=False)
-                inputs = tf.nn.embedding_lookup(embedding, self.input_text)
+                #First layer, bidirectional layer
+                '''
+                            https://arxiv.org/pdf/1512.05287.pdf
+                            "The article says that dropout should be applied to RNN inputs+output as well as states,
+                            using the same dropout mask for all the steps of the unrolled sequence.
+                            This approach is called "variational dropout" and the primitives for implementing it
+                            have recently been added to Tensorflow."
+                '''
+
+                cell_fw = cell_fn(args.rnn_size)
                 if enabel_dropout:
-                    inputs = tf.contrib.layers.dropout(inputs, keep_prob=1.0-self.dropout_embed_layer)
-
-            #First layer, bidirectional layer
-            '''
-                        https://arxiv.org/pdf/1512.05287.pdf
-                        "The article says that dropout should be applied to RNN inputs+output as well as states,
-                        using the same dropout mask for all the steps of the unrolled sequence.
-                        This approach is called "variational dropout" and the primitives for implementing it
-                        have recently been added to Tensorflow."
-            '''
-
-            cell_fw = cell_fn(args.rnn_size)
-            if enabel_dropout:
-                cell_fw = rnn.DropoutWrapper(
-                    cell_fw, input_keep_prob=1.0-self.dropout_bidir_layer, output_keep_prob=1.0-self.dropout_bidir_layer,
-                    state_keep_prob = 1.0-self.dropout_bidir_layer,
-                    dtype=tf.float32, variational_recurrent=True, input_size= embedding_dim)
-            cell_bw = cell_fn(args.rnn_size)
-            if enabel_dropout:
-                cell_bw = tf.contrib.rnn.DropoutWrapper(
-                    cell_bw, input_keep_prob=1.0-self.dropout_bidir_layer, output_keep_prob=1.0-self.dropout_bidir_layer,
-                    state_keep_prob=1.0-self.dropout_bidir_layer,
-                    dtype=tf.float32, variational_recurrent=True, input_size= embedding_dim)
-            self.init_state_fw =cell_bw.zero_state(self.batch_size, tf.float32)
-            self.init_state_bw =cell_fw.zero_state(self.batch_size, tf.float32)
-
-            bi_outputs, bi_output_state = \
-                tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, inputs, sequence_length=self.seq_lengths,
-                                                initial_state_bw=self.init_state_bw, initial_state_fw=self.init_state_fw)
-            bi_outputs = tf.concat(bi_outputs, 2)
-            self.bi_output_state_fw, self.bi_output_state_bw = bi_output_state
-
-
-            self.bi_output_state_fw = tf.identity(self.bi_output_state_fw, name='bi_state_fw')  # just to give it a name
-            self.bi_output_state_bw = tf.identity(self.bi_output_state_bw, name='bi_state_bw')  # just to give it a name
-
-            #Second layer
-            cells = []
-            for _ in range(args.num_layers):
-                cell = cell_fn(args.rnn_size)
+                    cell_fw = rnn.DropoutWrapper(
+                        cell_fw, input_keep_prob=1.0-self.dropout_bidir_layer, output_keep_prob=1.0-self.dropout_bidir_layer,
+                        state_keep_prob = 1.0-self.dropout_bidir_layer,
+                        dtype=tf.float32, variational_recurrent=True, input_size= embedding_dim)
+                cell_bw = cell_fn(args.rnn_size)
                 if enabel_dropout:
-                    cell = rnn.DropoutWrapper(
-                        cell, input_keep_prob=1.0-self.dropout_second_layer, output_keep_prob=1.0-self.dropout_second_layer,
-                        state_keep_prob=1.0-self.dropout_second_layer)
-                        #dtype=tf.float32, variational_recurrent=True, input_size= embedding_dim*2)
-                cells.append(cell)
+                    cell_bw = tf.contrib.rnn.DropoutWrapper(
+                        cell_bw, input_keep_prob=1.0-self.dropout_bidir_layer, output_keep_prob=1.0-self.dropout_bidir_layer,
+                        state_keep_prob=1.0-self.dropout_bidir_layer,
+                        dtype=tf.float32, variational_recurrent=True, input_size= embedding_dim)
+                self.init_state_fw =cell_bw.zero_state(self.batch_size, tf.float32)
+                self.init_state_bw =cell_fw.zero_state(self.batch_size, tf.float32)
 
-            self.cell = cell = rnn.MultiRNNCell(cells)
-            self.initial_state = cell.zero_state(self.batch_size, tf.float32)
+                bi_outputs, bi_output_state = \
+                    tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, inputs, sequence_length=self.seq_lengths,
+                                                    initial_state_bw=self.init_state_bw, initial_state_fw=self.init_state_fw)
+                bi_outputs = tf.concat(bi_outputs, 2)
+                self.bi_output_state_fw, self.bi_output_state_bw = bi_output_state
 
-            # bi_outputs = tf.stack(bi_outputs,1)
-            self.Yr, self.H = tf.nn.dynamic_rnn(cell,bi_outputs,sequence_length=self.seq_lengths,
-                                                initial_state=self.initial_state,dtype=tf.float32)
-            # Yr: [ BATCHSIZE, SEQLEN, INTERNALSIZE ]
-            # H:  [ BATCHSIZE, INTERNALSIZE*NLAYERS ] # this is the last state in the sequence
-            self.H = tf.identity(self.H, name='H')  # just to give it a name
-            self.Yr = tf.identity(self.Yr, name='Yr')
 
-            # RNN output layer:
-            # avg pool layer [batch_size, embedding_dim]
-            self.rnn_output = tf.reduce_mean(self.Yr, 1)
+                self.bi_output_state_fw = tf.identity(self.bi_output_state_fw, name='bi_state_fw')  # just to give it a name
+                self.bi_output_state_bw = tf.identity(self.bi_output_state_bw, name='bi_state_bw')  # just to give it a name
+
+                #Second layer
+                cells = []
+                for _ in range(args.num_layers):
+                    cell = cell_fn(args.rnn_size)
+                    if enabel_dropout:
+                        cell = rnn.DropoutWrapper(
+                            cell, input_keep_prob=1.0-self.dropout_second_layer, output_keep_prob=1.0-self.dropout_second_layer,
+                            state_keep_prob=1.0-self.dropout_second_layer)
+                            #dtype=tf.float32, variational_recurrent=True, input_size= embedding_dim*2)
+                    cells.append(cell)
+
+                self.cell = cell = rnn.MultiRNNCell(cells)
+                self.initial_state = cell.zero_state(self.batch_size, tf.float32)
+
+                # bi_outputs = tf.stack(bi_outputs,1)
+                self.Yr, self.H = tf.nn.dynamic_rnn(cell,bi_outputs,sequence_length=self.seq_lengths,
+                                                    initial_state=self.initial_state,dtype=tf.float32)
+                # Yr: [ BATCHSIZE, SEQLEN, INTERNALSIZE ]
+                # H:  [ BATCHSIZE, INTERNALSIZE*NLAYERS ] # this is the last state in the sequence
+                self.H = tf.identity(self.H, name='H')  # just to give it a name
+                self.Yr = tf.identity(self.Yr, name='Yr')
+
+                # RNN output layer:
+                # avg pool layer [batch_size, embedding_dim]
+                self.rnn_output = tf.reduce_mean(self.Yr, 1)
 
 
         use_attribues= args.use_att
@@ -174,7 +167,7 @@ class Model():
 
 
         with tf.name_scope('joint_output'):
-            if use_attribues:
+            if use_attribues and use_rnn:
                 if fc_joint_output:
                     # concatonate the rnn output and the attributes output
                     self.Q = tf.concat([self.rnn_output, self.att_output], 1)
@@ -184,20 +177,20 @@ class Model():
                 elif sum_joint_output:
                     self.F = tf.add(self.V_embed, self.rnn_output)
                     self.F = tf.add(self.F, self.att_output)
-            else:
+            elif use_rnn:
                 self.F = tf.add(self.V_embed, self.rnn_output)
+            else:
+                self.F = self.V_embed
+
+            self.r_hat = tf.reduce_sum(tf.multiply( self.U_embed, self.F), reduction_indices=1)
+
+            # In case of pure MF, don't add biases
+            if args.use_rnn:
+                self.r_hat = tf.add(self.r_hat, self.U_bias_embed)
+                self.r_hat = tf.add(self.r_hat, self.V_bias_embed,name="R_predicted")
 
 
-
-
-            self.r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.F), reduction_indices=1)
-
-            # self.r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.V_embed), reduction_indices=1)
-            self.r_hat = tf.add(self.r_hat, self.U_bias_embed)
-            self.r_hat = tf.add(self.r_hat, self.V_bias_embed,name="R_predicted")
-
-            multi_task = args.multi_task
-
+        multi_task = args.multi_task
         with tf.name_scope('Tag_prediction'):
             if multi_task:
                 # Tag prediction task
@@ -207,13 +200,14 @@ class Model():
         with tf.name_scope('update_doc_att_embedding'):            # RNN output [num_items, embedding_dim]
             # Update RNN and/or attribute joint output
             with tf.device("/cpu:0"):
-                # RNN and/or attribute joint output [num_items, embedding_dim]
-                self.doc_embed = tf.get_variable(shape=[self.m, self.k], name='doc_embed', trainable=False,
-                                                 dtype=tf.float32
-                                                 , initializer=tf.constant_initializer(0.))
-                self.update_doc_embed = tf.scatter_update(self.doc_embed, self.v_idx, self.rnn_output)
+                if use_rnn:
+                    # RNN and/or attribute joint output [num_items, embedding_dim]
+                    self.doc_embed = tf.get_variable(shape=[self.m, self.k], name='doc_embed', trainable=False,
+                                                     dtype=tf.float32
+                                                     , initializer=tf.constant_initializer(0.))
+                    self.update_doc_embed = tf.scatter_update(self.doc_embed, self.v_idx, self.rnn_output)
 
-                if use_attribues:
+                if use_attribues and args.use_rnn:
                     self.att_embed = tf.get_variable(shape=[self.m, (att_ouput_dim if fc_joint_output else self.k)],
                                                      name='att_embed', trainable=False, dtype=tf.float32
                                                  , initializer=tf.constant_initializer(0.))
@@ -230,33 +224,39 @@ class Model():
 
         with tf.name_scope('Calculate_prediction_matrix'):
             # Get predicted ratings matrix
-            if use_attribues:
+            if use_attribues and use_rnn:
                 self.R_hat = tf.add(self.V, self.joint_doc_att_embed)
-            else:
+            elif use_rnn:
                 self.R_hat = tf.add(self.V, self.doc_embed)
+            else:
+                self.R_hat = self.V
 
             self.R_hat = tf.matmul(self.U, self.R_hat,transpose_b=True)
 
-            # self.r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.V_embed), reduction_indices=1)
-            self.R_hat = tf.add(self.R_hat, tf.reshape(self.U_bias,shape=[-1,1]))
-            self.get_prediction_matrix = tf.add(self.R_hat, self.V_bias, name="Prediction_matrix")
+            if use_rnn:
+                # self.r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.V_embed), reduction_indices=1)
+                self.R_hat = tf.add(self.R_hat, tf.reshape(self.U_bias,shape=[-1,1]))
+                self.get_prediction_matrix = tf.add(self.R_hat, self.V_bias, name="Prediction_matrix")
 
+            else: # In case of pure MF, don't add biases
+                self.get_prediction_matrix = self.R_hat
 
         with tf.name_scope('loss'):
             # Loss function
             # self.MAE = tf.reduce_mean(tf.abs(tf.subtract(self.r, self.r_hat)))
             self.l2_loss =tf.nn.l2_loss(tf.subtract(self.r, self.r_hat))
-            self.l2_reg = tf.add(tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.U)),
-                              tf.multiply(self.reg_lambda, tf.nn.l2_loss(self.V)))
-            self.MSE_loss = tf.losses.mean_squared_error(self.r, self.r_hat, weights=confidence)
+            self.l2_reg = tf.multiply(self.reg_lambda_u, tf.nn.l2_loss(self.U))
 
+            self.MSE_loss = tf.losses.mean_squared_error(self.r, self.r_hat, weights=confidence)
             self.RMSE = tf.sqrt(self.MSE_loss)
 
             if multi_task:
                 mt_lambda = args.mt_lambda
-                self.reg_loss = tf.add(mt_lambda *self.MSE_loss, (1- mt_lambda)*tags_loss)
+                self.reg_loss = tf.add(mt_lambda * tf.add(self.MSE_loss, self.l2_reg), (1- mt_lambda)*tags_loss)
             else:
+                self.l2_reg = tf.add(self.l2_reg, tf.multiply(self.reg_lambda_v, tf.nn.l2_loss(self.V)))
                 self.reg_loss = tf.add(self.MSE_loss, self.l2_reg)
+
 
         with tf.name_scope('learning_rate_decay'):
             # self.global_step = tf.Variable(0, trainable=False)
@@ -273,9 +273,10 @@ class Model():
             # In case of alternate learning method
             self.train_step_u = self.optimizer.minimize(self.reg_loss, var_list=[self.U, self.U_bias])
             self.train_step_v = self.optimizer.minimize(self.reg_loss, var_list=[self.V, self.V_bias])
-            t_vars=tf.trainable_variables()
-            gru_vars = [var for var in t_vars if 'gru_cell' in var.name]
-            self.train_step_rnn = self.optimizer.minimize(self.reg_loss, var_list=[gru_vars])
+            if use_rnn:
+                t_vars=tf.trainable_variables()
+                gru_vars = [var for var in t_vars if 'gru_cell' in var.name]
+                self.train_step_rnn = self.optimizer.minimize(self.reg_loss, var_list=[gru_vars])
 
         with tf.name_scope('metrics'):
             tf.summary.scalar("MSE", self.MSE_loss)

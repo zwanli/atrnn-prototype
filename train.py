@@ -23,7 +23,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, default='/home/wanli/data/Extended_ctr',
                         help='data directory containing input.txt')
-    parser.add_argument("--dataset", "-d", type=str, default='dummy',
+    parser.add_argument("--dataset", "-d", type=str, default='citeulike-a',
                         help="Which dataset to use", choices=['dummy', 'citeulike-a', 'citeulike-t'])
     parser.add_argument('--embedding_dir', type=str, default='/home/wanli/data/cbow_w2v/',
                         help='GloVe embedding directory containing embeddings file')
@@ -38,6 +38,10 @@ def main():
                         help='directory containing tensorboard logs')
     parser.add_argument('--save_dir', type=str, default='save',
                         help='directory to store checkpointed models')
+    parser.add_argument('--confidence_mode',type=str, default='constant',
+                        help='Choose confidence mode', choices=['user-dependant' ,'constant','only-positive'])
+    parser.add_argument('--use_rnn', action='store_true',
+                        help='Learn documents embeddings')
     parser.add_argument('--rnn_size', type=int, default=200,
                         help='size of RNN hidden state')
     parser.add_argument('--num_layers', type=int, default=1,
@@ -55,7 +59,7 @@ def main():
     parser.add_argument('--multi_task', action='store_true',
                         help='Multi-task learning')
     parser.add_argument('--use_att', action='store_true',
-                        help='Learn attribute embeddins')
+                        help='Learn attribute embeddings')
     parser.add_argument('--summation', action='store_true',
                         help='Sum the attribute embeddings and the rnn output')
     parser.add_argument('--fc_layer', action='store_true',
@@ -239,11 +243,15 @@ def train(args):
     # read input data
     dataset_path, dataset_count = process_input(args, parser)
     args.vocab_size = parser.get_vocab_size()
-    confidence_mode = 'user-dependant'
+    confidence_mode = args.confidence_mode
+
     # parser.get_confidence_matrix(mode='constant',alpha=1 , beta=0.01)
     # parser.get_confidence_matrix(mode='only-positive')
     print('Confidence mode %s ' % confidence_mode)
-    confidence_matrix = parser.get_confidence_matrix(mode=confidence_mode)
+    if confidence_mode == 'constant':
+        confidence_matrix = parser.get_confidence_matrix(mode=confidence_mode,alpha=1,beta=0.01)
+    else:
+        confidence_matrix = parser.get_confidence_matrix(mode=confidence_mode)
     # parser.get_confidence_matrix()
 
 
@@ -326,10 +334,10 @@ def train(args):
 
         # print("Loading test ratings matrix")
         # test_ratings = utils.get_test_ratings_matrix(path_test, parser.user_count, parser.paper_count, sess)
-
-        bi_state_fw = sess.run(model.init_state_bw)
-        bi_state_bw = sess.run(model.init_state_fw)
-        h_state = sess.run(model.initial_state)
+        if args.use_rnn:
+            bi_state_fw = sess.run(model.init_state_bw)
+            bi_state_bw = sess.run(model.init_state_fw)
+            h_state = sess.run(model.initial_state)
 
         try:
             for step in range(n_steps):
@@ -340,15 +348,19 @@ def train(args):
                 # Initialize the training dataset iterator
                 sess.run(model.train_init_op)
 
-                feed_dict = construct_feed(bi_state_fw, bi_state_bw,
-                                           dropout_embed_layer, dropout_bidir_layer, dropout_second_layer)
+                if args.use_rnn:
+                    feed_dict = construct_feed(bi_state_fw, bi_state_bw,
+                                               dropout_embed_layer, dropout_bidir_layer, dropout_second_layer)
+                else:
+                    feed_dict={}
 
                 fetches = [model.joint_train_step,
                            # model.u_idx, model.v_idx,
                            # model.U, model.V, model.doc_embed, model.U_bias, model.V_bias, model.att_output,
-                           model.bi_output_state_fw, model.bi_output_state_bw, model.H,
-                           model.RMSE, model.summary_op, model.inc_batch_pointer_op,
-                           model.update_doc_embed]
+                           model.RMSE, model.summary_op, model.inc_batch_pointer_op
+                           ]
+                if args.use_rnn:
+                    fetches.extend([model.bi_output_state_fw, model.bi_output_state_bw, model.H, model.update_doc_embed])
                 if args.use_att:
                     fetches.extend([model.update_att_embed, model.update_doc_att_embed])
 
@@ -359,11 +371,14 @@ def train(args):
                     # u_idx, v_idx, U, V, rnn, U_b, V_b, att_ouput, \
                     fetched = \
                         sess.run(fetches, feed_dict=feed_dict)
-                    if args.use_att:
-                        _, bi_out_fw, bi_out_bw, final_state, rmse, summary_str, _, doc_embed, att_embed, joint_embed = fetched
 
+                    if args.use_rnn and args.use_att:
+                        _, rmse, summary_str, _,bi_out_fw, bi_out_bw, final_state,doc_embed, att_embed, joint_embed = fetched
+                    elif args.use_rnn:
+                        _, rmse, summary_str, _, bi_out_fw, bi_out_bw, final_state, doc_embed = fetched
                     else:
-                        _,bi_out_fw, bi_out_bw, final_state, rmse, summary_str, _, doc_embed = fetched
+                        _, rmse, summary_str, _, = fetched
+
                     # print every 500 iteration
                     if batch // 10 % 50 == 0:
                         print("Epoch {0}, batch {1}".format(step, batch))
@@ -430,10 +445,11 @@ def train(args):
                     # print("         | ndcg@10: {0:3.4f}".format(ndcg_at_ten))
                     # print("         | mrr@10: {0:3.4f}".format(mrr_at_ten))
 
-                # loop state around
-                h_state = final_state
-                bi_state_fw = bi_out_fw
-                bi_state_bw = bi_out_bw
+                if args.use_rnn:
+                    # loop rnn state around
+                    h_state = final_state
+                    bi_state_fw = bi_out_fw
+                    bi_state_bw = bi_out_bw
 
             prediction_matrix = sess.run(model.get_prediction_matrix)
             fold_dir = os.path.dirname(os.path.dirname(path_training))
