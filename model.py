@@ -175,8 +175,9 @@ class Model():
                     self.F = tf.add(self.V_embed, self.fc_layer)
 
                 elif sum_joint_output:
-                    self.F = tf.add(self.V_embed, self.rnn_output)
-                    self.F = tf.add(self.F, self.att_output)
+                    self.F = tf.add(self.rnn_output, self.att_output)
+                    self.F = tf.add(self.F,self.V_embed)
+
             elif use_rnn:
                 self.F = tf.add(self.V_embed, self.rnn_output)
             else:
@@ -220,7 +221,8 @@ class Model():
                     if fc_joint_output:
                         self.update_doc_att_embed = tf.scatter_update(self.joint_doc_att_embed, self.v_idx, self.fc_layer)
                     elif sum_joint_output:
-                        self.update_doc_att_embed = tf.add(self.att_output, self.rnn_output)
+                         self.summation_output =  tf.add(self.att_output, self.rnn_output)
+                         self.update_doc_att_embed = tf.scatter_update(self.joint_doc_att_embed, self.v_idx, self.summation_output)
 
         with tf.name_scope('Calculate_prediction_matrix'):
             # Get predicted ratings matrix
@@ -228,6 +230,8 @@ class Model():
                 self.R_hat = tf.add(self.V, self.joint_doc_att_embed)
             elif use_rnn:
                 self.R_hat = tf.add(self.V, self.doc_embed)
+            elif use_attribues:
+                self.R_hat = tf.add(self.V, self.att_embed)
             else:
                 self.R_hat = self.V
 

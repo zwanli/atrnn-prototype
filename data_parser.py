@@ -641,7 +641,7 @@ class DataParser(object):
         idx = np.arange(self.paper_count, dtype=np.int32)
         mask = np.ones(self.paper_count, dtype=bool)
         mask[[train_idx]] = False
-        mask[[test_idx]] = False
+        # mask[[test_idx]] = False
         negative_idx = idx[mask]
         np.random.seed(42)
         np.random.shuffle(negative_idx)

@@ -38,13 +38,13 @@ def main():
                         help='directory containing tensorboard logs')
     parser.add_argument('--save_dir', type=str, default='save',
                         help='directory to store checkpointed models')
-    parser.add_argument('--confidence_mode',type=str, default='constant',
-                        help='Choose confidence mode', choices=['user-dependant' ,'constant','only-positive'])
+    parser.add_argument('--confidence_mode',type=str, default='user-dependant',
+                        help='Choose confidence mode', choices=['user-dependant','constant','only-positive'])
     parser.add_argument('--use_rnn', action='store_true',
                         help='Learn documents embeddings')
     parser.add_argument('--rnn_size', type=int, default=200,
                         help='size of RNN hidden state')
-    parser.add_argument('--num_layers', type=int, default=1,
+    parser.add_argument('--num_layers', type=int, default=2,
                         help='number of layers in the RNN')
     parser.add_argument('--model', type=str, default='gru',
                         help='Choose the RNN cell type', choices=['rnn, gru, or lstm'])
@@ -56,8 +56,7 @@ def main():
                         help='number of epochs')
     parser.add_argument('--save_every', type=int, default=1000,
                         help='save frequency')
-    parser.add_argument('--multi_task', action='store_true',
-                        help='Multi-task learning')
+
     parser.add_argument('--use_att', action='store_true',
                         help='Learn attribute embeddings')
     parser.add_argument('--summation', action='store_true',
@@ -65,9 +64,11 @@ def main():
     parser.add_argument('--fc_layer', action='store_true',
                         help='Add a FC layer to get the joint output of the rnn and attributes embeddings')
 
-    parser.add_argument('--learning_rate', type=float, default=0.000001,
+    parser.add_argument('--learning_rate', type=float, default=0.0001,
                         help='learning rate')
-    parser.add_argument('--mt_lambda', type=float, default=0.9,
+    parser.add_argument('--multi_task', action='store_true',
+                        help='Multi-task learning')
+    parser.add_argument('--mt_lambda', type=float, default=0.6,
                         help='Multi-task hyperparamter labmda')
     parser.add_argument('--gpu_mem', type=float, default=0.666,
                         help='%% of gpu memory to be allocated to this process. Default is 66.6%%')
@@ -217,14 +218,6 @@ def load_samples_count(fold, split_mode, negative_samples=True):
             4: (341976, 33998),
             5: (281454, 64259)
         }[fold]
-    if split_mode == 'cold':
-        return {
-            1: (163159, 41827),
-            2: (163924, 41062),
-            3: (163805, 41181),
-            4: (164616, 40370),
-            5: (164440, 40546)
-        }[fold]
     if split_mode == 'warm':
         return {
             1: (170988, 33998),
@@ -234,6 +227,23 @@ def load_samples_count(fold, split_mode, negative_samples=True):
             5: (140727, 64259)
         }[fold]
 
+    if split_mode == 'cold' and negative_samples:
+        return {
+            1: (163159 * 2, 41827),
+            2: (163924 * 2, 41062),
+            3: (163805 * 2, 41181),
+            4: (164616 * 2, 40370),
+            5: (164440 * 2, 40546)
+        }[fold]
+    if split_mode == 'cold':
+        return {
+            1: (163159, 41827),
+            2: (163924, 41062),
+            3: (163805, 41181),
+            4: (164616, 40370),
+            5: (164440, 40546)
+        }[fold]
+
 
 def train(args):
     # initialize the parser
@@ -241,13 +251,14 @@ def train(args):
                         use_embeddings=True, embed_dir=args.embedding_dir, embed_dim=args.embedding_dim)
 
     # read input data
+    print('--Processing input')
     dataset_path, dataset_count = process_input(args, parser)
     args.vocab_size = parser.get_vocab_size()
     confidence_mode = args.confidence_mode
 
     # parser.get_confidence_matrix(mode='constant',alpha=1 , beta=0.01)
     # parser.get_confidence_matrix(mode='only-positive')
-    print('Confidence mode %s ' % confidence_mode)
+    print('--Confidence mode %s ' % confidence_mode)
     if confidence_mode == 'constant':
         confidence_matrix = parser.get_confidence_matrix(mode=confidence_mode,alpha=1,beta=0.01)
     else:
@@ -318,8 +329,8 @@ def train(args):
         train_writer.add_graph(sess.graph)
         # valid_writer.add_graph(sess.graph)
         # test_writer.add_graph(sess.graph)
-        dropout_second_layer = 0.2
-        dropout_bidir_layer = 0.1
+        dropout_second_layer = 0.3
+        dropout_bidir_layer = 0.5
         dropout_embed_layer = 0.1
 
         if multi_task:
@@ -393,16 +404,19 @@ def train(args):
                     # if step // 1 % 5 == 0 and step > 4:
                     #     saved_file = model.saver.save(sess, ckpt_dir, global_step=step)
                     #     print("Saved file: " + saved_file)
-                    if args.split == 'cold':
+                    if True or args.split == 'cold':
                         # Initialize the validation dataset iterator
                         sess.run(model.validation_init_op)
-                        test_bi_fw = sess.run(model.init_state_fw)
-                        test_bi_bw = sess.run(model.init_state_bw)
-                        init_state = sess.run(model.initial_state)
-                        # don't dropout
-                        feed_dict = construct_feed(test_bi_fw, test_bi_bw, 0, 0, 0)
-                        # for batch in range(2):
-                        for batch in range(nb_batches_val):
+                        if args.use_rnn:
+                            test_bi_fw = sess.run(model.init_state_fw)
+                            test_bi_bw = sess.run(model.init_state_bw)
+                            init_state = sess.run(model.initial_state)
+                            # don't dropout
+                            feed_dict = construct_feed(test_bi_fw, test_bi_bw, 0, 0, 0)
+                        else:
+                            feed_dict={}
+                        for batch in range(2):
+                        # for batch in range(nb_batches_val):
                             rmse_test, summary_str = sess.run(
                                 [model.RMSE, model.summary_op], feed_dict=feed_dict)
                             test_writer.add_summary(summary_str, global_step=(step * nb_batches_val + batch))
@@ -451,10 +465,55 @@ def train(args):
                     bi_state_fw = bi_out_fw
                     bi_state_bw = bi_out_bw
 
+
+            # PREDICTION:
+            # In case of out-of-matrix:
+            # Calculate the item embeddings by using the rnn and/or the attributes output
+            print("--Calculating the predication matrix ")
+            if args.use_rnn or args.use_att:
+                if args.use_rnn:
+                    bi_fw = bi_state_fw
+                    bi_bw = bi_state_bw
+                    # don't dropout
+                    feed_dict = construct_feed(bi_fw, bi_bw, 0, 0, 0)
+                else:
+                    feed_dict ={}
+
+                # Initialize the training dataset iterator
+                sess.run(model.train_init_op)
+
+                # for batch in range(1):
+                for batch in range(nb_batches_train):
+                    if args.use_rnn and args.use_att:
+                        _ = sess.run(
+                            [model.update_doc_att_embed], feed_dict=feed_dict)
+                    elif args.use_rnn :
+                        _ = sess.run(
+                            [model.update_doc_embed], feed_dict=feed_dict)
+                    elif args.use_att:
+                        _ = sess.run(
+                            [model.update_att_embed], feed_dict=feed_dict)
+
+                # Initialize the test dataset iterator
+                sess.run(model.validation_init_op)
+
+                # for batch in range(1):
+                for batch in range(nb_batches_val):
+                    if args.use_rnn and args.use_att:
+                        _ = sess.run(
+                            [model.update_doc_att_embed], feed_dict=feed_dict)
+                    elif args.use_rnn :
+                        _ = sess.run(
+                            [model.update_doc_embed], feed_dict=feed_dict)
+                    elif args.use_att:
+                        _ = sess.run(
+                            [model.update_att_embed], feed_dict=feed_dict)
+
             prediction_matrix = sess.run(model.get_prediction_matrix)
             fold_dir = os.path.dirname(os.path.dirname(path_training))
             predicted_ratings_file = os.path.join(fold_dir, 'score.npy')
             np.save(predicted_ratings_file, prediction_matrix)
+            print("Predication matrix saved to {}".format(predicted_ratings_file))
 
             if args.save:
                  model.saver.save(sess, fold_dir + '/{0}-model.ckpt'.format(time.strftime(dir_prefix)))
