@@ -18,6 +18,8 @@ from prettytable import PrettyTable
 from utils import _int64_feature
 from utils import _bytes_feature
 from utils import _parse_function
+
+from scipy.sparse import lil_matrix
 import matplotlib
 
 matplotlib.use('Agg')
@@ -713,26 +715,40 @@ class DataParser(object):
         elif train:
             ratings_ = self.train_ratings
 
-
+        # a matrix that stores the set of the samples, where the ones represent the samples and 0's will be ignored
+        samples = np.zeros(shape=[self.user_count,self.paper_count],dtype=np.int32)
+        # a matrix that stores the original ratings
+        # make sure that the rating value for negative samples is 0
         ratings = np.zeros(shape=[self.user_count,self.paper_count],dtype=np.int32)
+
         for user, user_ratings in enumerate(ratings_[fold]):
-            if add_negative_samples and not test:
-                user_ratings.extend(self.get_negative_samples(user_ratings,[], self.paper_count))
+            # give a rating value of 1 for positive samples
             for item in user_ratings:
                 ratings[user][item] = 1
+            if add_negative_samples and not test:
+                negative_samples = self.get_negative_samples(user_ratings,[], self.paper_count)
+                user_ratings.extend(negative_samples)
+                # # give a rating value of 0 for negative samples
+                # for item in negative_samples:
+                #     ratings[user][item] = 0
 
-        nonzero_u_idx = ratings.nonzero()[0]
-        nonzero_v_idx = ratings.nonzero()[1]
-        num_rating = np.count_nonzero(ratings)
+            for item in user_ratings:
+                samples[user][item] = 1
+
+        nonzero_u_idx = samples.nonzero()[0]
+        nonzero_v_idx = samples.nonzero()[1]
+        num_rating = np.count_nonzero(samples)
         idx = np.arange(num_rating)
         np.random.shuffle(idx)
 
         for sample in range(num_rating):
                 u_id = nonzero_u_idx[idx[sample]]
                 v_id = nonzero_v_idx[idx[sample]]
-                r = self.ratings[u_id,v_id]
+                # get the original rating
+                r = ratings[u_id,v_id]
                 doc = np.array(self.all_documents[v_id])
                 yield u_id, v_id, int(r), doc
+
 
     def get_confidence_matrix(self, mode='default', **kwargs):
         '''
