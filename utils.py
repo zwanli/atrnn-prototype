@@ -2,6 +2,9 @@ import tensorflow as tf
 import os
 import sys
 import numpy as np
+from keras.preprocessing.sequence import  pad_sequences
+# from tensorflow.keras.preprocessing.sequence import pad_sequences
+
 def rounded_predictions(predictions):
     """
     The method rounds up the predictions and returns a prediction matrix containing only 0s and 1s.
@@ -17,10 +20,14 @@ def rounded_predictions(predictions):
         rounded_matrix[user, low_values_indices] = 0
     return rounded_matrix
 
-def static_padding(docs,maxlen):
+def static_padding(input_docs,maxlen,num_papers):
     lengths = []
     long_docs = 0
-    for d in docs:
+    # covnert from dict to a list of lists
+    docs=[]
+    for i in range(num_papers):
+        d =input_docs[i]
+        docs.append(d)
         if len(d) <= maxlen:
             lengths.append(len(d))
         else:
@@ -28,7 +35,7 @@ def static_padding(docs,maxlen):
             lengths.append(maxlen)
     print('Documents longer than {0} tokens: {1}'.format(maxlen,long_docs))
     padded_seq = pad_sequences(docs, maxlen=maxlen, padding='post')
-    return padded_seq, lengths
+    return padded_seq#, lengths
 
 def num_samples(path):
     c = 0
@@ -140,7 +147,26 @@ def get_test_ratings_matrix(filename,user_count,paper_count,sess):
 
 
 
+def convert_tripltes_to_tfrecords(path, parser,fold, test=False):
+    """Converts a dataset to tfrecords."""
+    print('Writing', path)
+    writer = tf.python_io.TFRecordWriter(path)
+    for u_id, pos_id, neg_id, pos_doc,neg_doc in parser.generate_tripletes(fold, test=test):
+        # Create a feature
+        feature = {
+            'u_id': _int64_feature(u_id),
+            'pos_id': _int64_feature(pos_id),
+            'neg_id': _int64_feature(neg_id),
+            'pos_length': _int64_feature(len(pos_doc)),
+            'neg_length': _int64_feature(len(neg_doc))
+        }
+        # Create an example protocol buffer
+        example = tf.train.Example(features=tf.train.Features(feature=feature))
 
+        # Serialize to string and write on the file
+        writer.write(example.SerializeToString())
+    writer.close()
+    sys.stdout.flush()
 
 def  convert_matrix_to_tfrecords(infile, outfile, test=False):
     '''

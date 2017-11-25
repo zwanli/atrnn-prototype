@@ -365,6 +365,7 @@ class DataParser(object):
         # TODO: Get word ids when not using pre-trained word embeddings
         return self.all_documents
 
+
     def get_paper_conference(self, paper):
         journal_index = -1
         booktitle_index = -1
@@ -749,6 +750,33 @@ class DataParser(object):
                 doc = np.array(self.all_documents[v_id])
                 yield u_id, v_id, int(r), doc
 
+    def generate_tripletes(self,fold, train=True, test=False):
+
+        np.random.seed(42)
+        if test:
+            ratings_ = self.test_ratings
+        elif train:
+            ratings_ = self.train_ratings
+
+        # a list of triplets (user_id, positive sample id, negative sample id)
+        samples = []
+
+        for user, user_ratings in enumerate(ratings_[fold]):
+            negative_samples = self.get_negative_samples(user_ratings, [], self.paper_count)
+            for i in range(len(user_ratings)):
+                # add a tuple, (user_id, positive sample id, negative sample id)
+                samples.append((user,user_ratings[i],negative_samples[i]))
+
+        num_rating = len(samples)
+        np.random.shuffle(samples)
+        for i in range(num_rating):
+            u_id = samples[i][0]
+            pos_id = samples[i][1]
+            neg_id = samples[i][2]
+            pos_doc = np.array(self.all_documents[pos_id])
+            neg_doc = np.array(self.all_documents[neg_id])
+
+            yield u_id, pos_id, neg_id, pos_doc,neg_doc
 
     def get_confidence_matrix(self, mode='default', **kwargs):
         '''
