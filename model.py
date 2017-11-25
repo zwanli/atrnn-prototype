@@ -321,13 +321,13 @@ class Model():
         elif model == 'lstm':
             cell_fn = rnn.BasicLSTMCell
         else:
-            raise Exception("model type not supported: {}".format(args.model))
+            raise Exception("model type not supported: {}".format(model))
         self.dropout_second_layer = tf.placeholder(tf.float32, name='dropout_second_layer')
         self.dropout_bidir_layer = tf.placeholder(tf.float32, name='dropout_bidir_layer')
         self.dropout_embed_layer = tf.placeholder(tf.float32, name='dropout_embed_layer')
         with tf.device("/cpu:0"):
             # A matrix that contains all the abstracts
-            self.embeddings_init = tf.placeholder(tf.float32, shape=(vocab_size, embedding_dim))
+            self.embeddings_init = tf.placeholder(tf.float32, shape=(vocab_size, embedding_dim), name='embeddings_init')
 
             #shape=[vocab_size, embedding_dim]
             embeddings = tf.get_variable(name="word_embeddings",

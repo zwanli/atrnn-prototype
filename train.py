@@ -152,6 +152,8 @@ def process_input(args, parser):
         raise
 
     parser.load_embeddings()
+    # load abstracts
+    load_abstracts(parser, dataset_folder, args.dataset)
 
     for fold in range(args.folds):
         train_folder = os.path.join(split_folder, 'fold-{}'.format(fold + 1),
@@ -167,28 +169,27 @@ def process_input(args, parser):
         except OSError as e:
             if e.errno != errno.EEXIST:
                 raise
-        # load abstracts
-        load_abstracts(parser, dataset_folder, args.dataset)
+
 
         train_file = os.path.join(train_folder, args.dataset + '_train_{0}_triplets.tfrecords'.format(fold + 1))
         if os.path.exists(train_file):
             print("File already exists {0}".format(train_file))
         else:
             if not parser.train_ratings:
-                load_abstracts(parser, dataset_folder, args.dataset)
+                # load_abstracts(parser, dataset_folder, args.dataset)
                 # if args.split == 'warm':
                 #     parser.split_warm_start_item(args.folds)
                 # elif args.split == 'cold':
                 #     parser.split_cold_start(args.folds)
                 parser.load_folds(split_folder)
-                convert_tripltes_to_tfrecords(train_file, parser, fold)
+            convert_tripltes_to_tfrecords(train_file, parser, fold)
 
         test_file = os.path.join(test_folder, args.dataset + '_test_{0}.tfrecords'.format(fold + 1))
         if os.path.exists(test_file):
             print("File already exists {0}".format(test_file))
         else:
             if not parser.test_ratings:
-                load_abstracts(parser, dataset_folder, args.dataset)
+                # load_abstracts(parser, dataset_folder, args.dataset)
                 # parser.split_cold_start(5)
                 # if args.split == 'warm':
                 #     parser.split_warm_start_item(args.folds)
@@ -342,12 +343,14 @@ def train(args):
 
         feed_dict = {model.abstracts_matrix_init: static_padding(parser.all_documents, maxlen=args.max_length,
                                                                  num_papers=parser.paper_count),
-                     model.embeddings_init: parser.embeddings}
+                     'RNN/embeddings_init:0': parser.embeddings}
         if multi_task:
             # Load the tag matrix while initializing graph variables.
             feed_dict[model.tags_matrix_init] = parser.get_tag_matrix()
             sess.run(tf.global_variables_initializer(), feed_dict=feed_dict)
         else:
+            # # free some ram
+            # del parser.tag_matrix
             sess.run(tf.global_variables_initializer(),feed_dict=feed_dict)
         # free some ram
         del parser.tag_matrix
