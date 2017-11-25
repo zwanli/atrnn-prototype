@@ -8,13 +8,14 @@ def rounded_predictions(predictions):
     :returns: predictions rounded up matrix
     :rtype: int[][]
     """
+    rounded_matrix = predictions.copy()
     n_users = predictions.shape[0]
     for user in range(n_users):
         avg = sum(predictions[user]) / predictions.shape[1]
         low_values_indices = predictions[user, :] < avg
-        predictions[user, :] = 1
-        predictions[user, low_values_indices] = 0
-    return predictions
+        rounded_matrix[user, :] = 1
+        rounded_matrix[user, low_values_indices] = 0
+    return rounded_matrix
 
 def static_padding(docs,maxlen):
     lengths = []
@@ -54,19 +55,21 @@ def _bytes_feature_list(values):
     return tf.train.FeatureList(feature=[_bytes_feature(v) for v in values])
 
 
-def convert_to_tfrecords(path, parser,fold, maxlen, validation=False, test=False):
+def  convert_to_tfrecords(path, parser,fold, maxlen, split_method, test=False):
     """Converts a dataset to tfrecords."""
     print('Writing', path)
     writer = tf.python_io.TFRecordWriter(path)
-    for u_id, v_id, rating, doc in parser.generate_samples(1, fold, validation=validation, test=test):
+    for u_id, v_id, rating, doc in parser.generate_samples(fold, test=test):
         context = tf.train.Features(feature={
             'u': _int64_feature(u_id),
             'v': _int64_feature(v_id),
             'r': _int64_feature(rating),
             'abs_length': _int64_feature(len(doc))
         })
+        # if rating == 0:
+        #     print (u_id,v_id)
         feature_lists = tf.train.FeatureLists(feature_list={
-            "abstract": _int64_feature_list(doc[:maxlen]) })
+            "abstract": _int64_feature_list(doc) })
         sequence_example = tf.train.SequenceExample(
             context=context, feature_lists=feature_lists)
         writer.write(sequence_example.SerializeToString())
@@ -135,10 +138,63 @@ def get_test_ratings_matrix(filename,user_count,paper_count,sess):
             print("Finished reading the test dataset")
     return ratings
 
+
+
+
+
+def  convert_matrix_to_tfrecords(infile, outfile, test=False):
+    '''
+    Convert a ratings matrix into tf_records
+    :param path:
+    :param parser:
+    :param fold:
+    :param maxlen:
+    :param split_method:
+    :param test:
+    :return:
+    '''
+    """Converts a dataset to tfrecords."""
+    user_count = sum(1 for line in open(infile))
+    assert user_count == 5551
+    paper_count = 16980
+    ratings = np.zeros((user_count, paper_count),dtype=np.int32)
+    i = 0
+    with open(infile, 'r') as f:
+        for user_id, line in enumerate(f):
+            ratings[user_id][np.array(line.split()[1:]).astype(int).tolist()] = 1
+
+    print('Writing', outfile)
+    writer = tf.python_io.TFRecordWriter(outfile)
+
+    for u_id in range(user_count):
+        for v_id in range(paper_count):
+            context = tf.train.Features(feature={
+                'u': _int64_feature(u_id),
+                'v': _int64_feature(v_id),
+                'r': _int64_feature(ratings[u_id,v_id]),
+                'abs_length': _int64_feature(0)
+            })
+            feature_lists = tf.train.FeatureLists(feature_list={
+                "abstract": _int64_feature_list([]) })
+            sequence_example = tf.train.SequenceExample(
+                context=context, feature_lists=feature_lists)
+            writer.write(sequence_example.SerializeToString())
+    writer.close()
+    sys.stdout.flush()
+
+
 def main():
-    test_filename = '/home/wanli/data/Extended_ctr/dummy_test_1.tfrecords'
-    with tf.Session() as sess:
-        get_test_ratings_matrix(test_filename,50,1920,sess)
+    train_ratings_file = '/home/wanli/data/Extended_ctr/citeulike_a_extended/in-matrix-item_folds/fold-1/train-fold_1-users.dat'
+    train_outfile ='/home/wanli/data/Extended_ctr/citeulike_a_extended/in-matrix-item_folds/fold-1/train/citeulike-a_train_1.tfrecords'
+    convert_matrix_to_tfrecords(train_ratings_file,train_outfile)
+
+    test_ratings_file = '/home/wanli/data/Extended_ctr/citeulike_a_extended/in-matrix-item_folds/fold-1/test-fold_1-users.dat'
+    test_outfile = '/home/wanli/data/Extended_ctr/citeulike_a_extended/in-matrix-item_folds/fold-1/test/citeulike-a_test_1.tfrecords'
+    convert_matrix_to_tfrecords(test_ratings_file,test_outfile)
+
+
+    # with tf.Session() as sess:
+    #     get_test_ratings_matrix(test_filename,50,1920,sess)
 
 if __name__ == '__main__':
     main()
