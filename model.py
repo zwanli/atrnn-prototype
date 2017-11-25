@@ -15,7 +15,7 @@ def bias_variable(shape, name):
 class Model():
     def __init__(self, args, ratings, embed,features_matrix,
                  tags_count, confidence_matrix, train_filename, test_filename, enabel_dropout=False,
-                 reg_lambda_u=0.01,reg_lambda_v = 100):
+                 reg_lambda_u=0.01,reg_lambda_v = 100, reg_lambda_att = 0.5):
         self.args = args
         self.dataset = args.dataset
         if args.model == 'rnn':
@@ -191,11 +191,70 @@ class Model():
                 self.r_hat = tf.add(self.r_hat, self.V_bias_embed,name="R_predicted")
 
 
+
         multi_task = args.multi_task
         with tf.name_scope('Tag_prediction'):
             if multi_task:
                 # Tag prediction task
                 tags_loss = self.tag_module(tags_count,self.k)
+
+
+        with tf.name_scope('loss'):
+
+
+            # self.MAE = tf.reduce_mean(tf.abs(tf.subtract(self.r, self.r_hat)))
+            # Regularizers
+            # User vector regularizer
+            self.U_reg = tf.multiply(self.reg_lambda_u, tf.nn.l2_loss(self.U_embed))
+
+            # add attribute module regularizer term
+            if args.use_att:
+                # get weight and biase variables
+                weights_biases = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+                                                   'Attributes_component_%d-layers' % (args.num_layers))
+                regularizer = tf.contrib.layers.l2_regularizer(scale=reg_lambda_att)
+                # attribute module regularizer term
+                att_reg_term = tf.reduce_sum(tf.contrib.layers.apply_regularization(regularizer, weights_biases))
+
+                self.reg_term = tf.add(self.U_reg, att_reg_term)
+            else:
+                self.reg_term = self.U_reg
+
+
+            self.l2_loss =tf.nn.l2_loss(tf.subtract(self.r, self.r_hat))
+            # Loss function
+            self.MSE_loss = tf.losses.mean_squared_error(self.r, self.r_hat, weights=confidence)
+            self.RMSE = tf.sqrt(self.MSE_loss)
+
+            # add regularization terms to the loss function
+            if multi_task:
+                mt_lambda = args.mt_lambda
+                self.reg_loss = tf.add(mt_lambda * tf.add(self.MSE_loss, self.reg_term), (1- mt_lambda)*tags_loss)
+            else:
+                self.V_reg = tf.multiply(self.reg_lambda_v, tf.nn.l2_loss(self.V_embed))
+                self.reg_term = tf.add(self.reg_term, self.V_reg )
+                self.reg_loss = tf.add(self.MSE_loss, self.reg_term)
+
+
+        with tf.name_scope('learning_rate_decay'):
+            # self.global_step = tf.Variable(0, trainable=False)
+            starter_learning_rate = self.learning_rate
+            learning_rate = tf.train.exponential_decay(starter_learning_rate, self.batch_pointer,
+                                                       100000, 0.96, staircase=True)
+
+        with tf.name_scope('adam_optimizer'):
+            self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
+
+            # In case of joint optimization
+            self.joint_train_step = self.optimizer.minimize(self.reg_loss)
+
+            # In case of alternate learning method
+            self.train_step_u = self.optimizer.minimize(self.reg_loss, var_list=[self.U, self.U_bias])
+            self.train_step_v = self.optimizer.minimize(self.reg_loss, var_list=[self.V, self.V_bias])
+            if use_rnn:
+                t_vars=tf.trainable_variables()
+                gru_vars = [var for var in t_vars if 'gru_cell' in var.name]
+                self.train_step_rnn = self.optimizer.minimize(self.reg_loss, var_list=[gru_vars])
 
 
         with tf.name_scope('update_doc_att_embedding'):            # RNN output [num_items, embedding_dim]
@@ -244,43 +303,6 @@ class Model():
 
             else: # In case of pure MF, don't add biases
                 self.get_prediction_matrix = self.R_hat
-
-        with tf.name_scope('loss'):
-            # Loss function
-            # self.MAE = tf.reduce_mean(tf.abs(tf.subtract(self.r, self.r_hat)))
-            self.l2_loss =tf.nn.l2_loss(tf.subtract(self.r, self.r_hat))
-            self.l2_reg = tf.multiply(self.reg_lambda_u, tf.nn.l2_loss(self.U_embed))
-
-            self.MSE_loss = tf.losses.mean_squared_error(self.r, self.r_hat, weights=confidence)
-            self.RMSE = tf.sqrt(self.MSE_loss)
-
-            if multi_task:
-                mt_lambda = args.mt_lambda
-                self.reg_loss = tf.add(mt_lambda * tf.add(self.MSE_loss, self.l2_reg), (1- mt_lambda)*tags_loss)
-            else:
-                self.l2_reg = tf.add(self.l2_reg, tf.multiply(self.reg_lambda_v, tf.nn.l2_loss(self.V_embed)))
-                self.reg_loss = tf.add(self.MSE_loss, self.l2_reg)
-
-
-        with tf.name_scope('learning_rate_decay'):
-            # self.global_step = tf.Variable(0, trainable=False)
-            starter_learning_rate = self.learning_rate
-            learning_rate = tf.train.exponential_decay(starter_learning_rate, self.batch_pointer,
-                                                       100000, 0.96, staircase=True)
-
-        with tf.name_scope('adam_optimizer'):
-            self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
-
-            # In case of joint optimization
-            self.joint_train_step = self.optimizer.minimize(self.reg_loss)
-
-            # In case of alternate learning method
-            self.train_step_u = self.optimizer.minimize(self.reg_loss, var_list=[self.U, self.U_bias])
-            self.train_step_v = self.optimizer.minimize(self.reg_loss, var_list=[self.V, self.V_bias])
-            if use_rnn:
-                t_vars=tf.trainable_variables()
-                gru_vars = [var for var in t_vars if 'gru_cell' in var.name]
-                self.train_step_rnn = self.optimizer.minimize(self.reg_loss, var_list=[gru_vars])
 
         with tf.name_scope('metrics'):
             tf.summary.scalar("MSE", self.MSE_loss)
@@ -342,15 +364,16 @@ class Model():
         # N_o = number of output neurons.
         # N_s = number of samples in training data set.
         # alpha = an arbitrary scaling factor usually 2-10.
-        alpha = 2
-        n_hidden_1 = int(self.training_samples_count / (alpha * (x_size + self.k)))  # 1st layer number of neurons
-        n_hidden_2 = int(self.training_samples_count / (alpha * (x_size + self.k)))
-        n_hidden_3 = int(self.training_samples_count / (alpha * (x_size + self.k)))  # 1st layer number of neurons
+        alpha = 3
+        n_hidden_1 = int(self.training_samples_count / (alpha * (x_size + self.k)))  # Number of neurons in the 1st layer
+        alpha = 5
+        n_hidden_2 = int(self.training_samples_count / (alpha * (x_size + self.k))) # 2nd  layer
+        alpha = 7
+        n_hidden_3 = int(self.training_samples_count / (alpha * (x_size + self.k)))  # 3rd layer on wards
         y_size = output_dim
 
 
         with tf.variable_scope('Attributes_component_%d-layers' % (n_layers)):
-
             # Input layer, User side
             with tf.name_scope('U_input_layer'):
                 w_input = weight_variable([x_size,n_hidden_1], 'W_input')
@@ -372,13 +395,21 @@ class Model():
                         b_h = bias_variable(n_hidden_3, 'B_%d' % n)
                         h_h = tf.nn.relu(tf.add(tf.matmul(h_h,w_h),b_h), 'h_%d' % n)
             with tf.name_scope('output_layer'):
-                if n_layers > 2:
+                if n_layers > 1:
                     n_hidden_prev = n_hidden_3
                 else:
                     n_hidden_prev = n_hidden_2
                 w_U_out = weight_variable([n_hidden_prev, y_size], 'W_out')
                 b_U_out = bias_variable(y_size, 'B_out')
                 attribute_output = tf.nn.relu(tf.add(tf.matmul(h_h, w_U_out), b_U_out), 'Attributes_output')
+
+        print('  --Attribute module:\n number of layers')
+        print('    Number of layers %d' % n_layers)
+        print('    Number of unites per layer:')
+        print('     input layer: %d' % n_hidden_1)
+        print('     1st layer: %d' % n_hidden_2)
+        if n_layers > 1:
+            print('     2nd layer onwards: %d' % n_hidden_3)
         return attribute_output
 
     def tag_module(self, tags_count, embedding_dim):
