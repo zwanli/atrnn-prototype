@@ -190,6 +190,7 @@ class Model():
 
             # NO NEED FOR CONFIDENCE for BPR
             self.log_loss = tf.reduce_mean(tf.log(tf.nn.sigmoid(tf.subtract(self.pos_r_hat, self.neg_r_hat))))
+            self.log_loss = tf.maximum(tf.minimum(self.log_loss, 1-1e-15), 1e-15 )
 
 
             # add regularization terms to the loss function
@@ -206,7 +207,7 @@ class Model():
             # self.global_step = tf.Variable(0, trainable=False)
             starter_learning_rate = self.learning_rate
             learning_rate = tf.train.exponential_decay(starter_learning_rate, self.batch_pointer,
-                                                       100000, 0.96, staircase=True)
+                                                       10000, 0.96, staircase=True)
 
         with tf.name_scope('adam_optimizer'):
             self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
@@ -283,7 +284,7 @@ class Model():
             # useless loss functions
             labels = tf.ones(shape=self.batch_size)
 
-            self.MSE = tf.metrics.mean_squared_error(labels, self.pos_r_hat)
+            self.MSE, _ = tf.metrics.mean_squared_error(labels, self.pos_r_hat)
             self.RMSE = tf.sqrt(self.MSE)
             # accuracy, _ = tf.metrics.(labels, self.pos_r_hat, name='Accuracy')
             # tf.summary.scalar('Accuracy', accuracy)
