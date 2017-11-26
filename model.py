@@ -154,11 +154,13 @@ class Model():
                 #     self.biases = tf.add(2 * self.U_bias_embed, self.pos_V_bias_embed)
                 #     self.biases = tf.add(self.biases, self.neg_V_bias_embed)
                 if use_rnn or use_attribues:
-                    self.pos_r_hat = tf.reduce_sum(tf.multiply( self.U_embed, self.pos_F), reduction_indices=1)
-                    self.pos_r_hat = tf.add(self.pos_r_hat, tf.add(self.U_bias_embed, self.pos_V_bias_embed))
-
+                    self.pos_r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.pos_F), reduction_indices=1)
+                    self.pos_r_hat = tf.add(self.pos_r_hat,  self.pos_V_bias_embed)
+                    # self.pos_r_hat = tf.Print(self.pos_r_hat, [tf.shape(self.pos_r_hat), self.pos_r_hat],
+                    #                           message='pos_r_hat=', first_n=20,
+                    #                           summarize=4)
                     self.neg_r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.neg_F), reduction_indices=1)
-                    self.neg_r_hat = tf.add(self.neg_r_hat, tf.add(self.U_bias_embed, self.neg_V_bias_embed))
+                    self.neg_r_hat = tf.add(self.neg_r_hat,  self.neg_V_bias_embed)
 
         multi_task = args.multi_task
         with tf.name_scope('Tag_prediction'):
@@ -186,21 +188,19 @@ class Model():
             else:
                 self.reg_term = self.U_reg
 
-            self.l2_loss = tf.nn.l2_loss(tf.subtract(self.pos_r_hat, self.neg_r_hat))
-            # Loss function
-            self.MSE_loss = tf.losses.mean_squared_error(self.pos_r_hat, self.neg_r_hat, weights=confidence)
-            self.RMSE = tf.sqrt(self.MSE_loss)
+            # NO NEED FOR CONFIDENCE for BPR
+            self.log_loss = tf.reduce_mean(tf.log(tf.nn.sigmoid(tf.subtract(self.pos_r_hat, self.neg_r_hat))))
+
 
             # add regularization terms to the loss function
             if multi_task:
                 mt_lambda = args.mt_lambda
-                self.reg_loss = tf.add(mt_lambda * tf.add(self.MSE_loss, self.reg_term), (1 - mt_lambda) * tags_loss)
+                self.reg_loss = tf.add(mt_lambda * tf.add(self.log_loss, self.reg_term), (1 - mt_lambda) * tags_loss)
             else:
                 self.V_reg = tf.multiply(self.reg_lambda_v, tf.nn.l2_loss(self.pos_V_embed))
                 self.V_reg = tf.add(self.V_reg, tf.multiply(self.reg_lambda_v, tf.nn.l2_loss(self.neg_V_embed)))
                 self.reg_term = tf.add(self.reg_term, self.V_reg)
-                self.reg_loss = tf.add(self.MSE_loss, self.reg_term)
-
+                self.reg_loss = tf.add(self.log_loss, self.reg_term)
 
         with tf.name_scope('learning_rate_decay'):
             # self.global_step = tf.Variable(0, trainable=False)
@@ -230,29 +230,32 @@ class Model():
                     self.doc_embed = tf.get_variable(shape=[self.m, self.k], name='doc_embed', trainable=False,
                                                      dtype=tf.float32
                                                      , initializer=tf.constant_initializer(0.))
-                    self.update_doc_embed = tf.scatter_update(self.doc_embed, tf.concat([self.pos_idx,self.neg_idx],0),
-                                                              tf.concat([self.pos_rnn_output,self.neg_rnn_output],0))
+                    self.update_doc_embed = tf.scatter_update(self.doc_embed,
+                                                              tf.concat([self.pos_idx, self.neg_idx], 0),
+                                                              tf.concat([self.pos_rnn_output, self.neg_rnn_output], 0))
 
                 if use_attribues and args.use_rnn:
                     self.att_embed = tf.get_variable(shape=[self.m, (att_ouput_dim if fc_joint_output else self.k)],
                                                      name='att_embed', trainable=False, dtype=tf.float32
                                                      , initializer=tf.constant_initializer(0.))
-                    self.update_att_embed = tf.scatter_update(self.att_embed, tf.concat([self.pos_idx,self.neg_idx],0)
-                                                              ,tf.concat([self.pos_att_output,self.neg_att_output],0))
+                    self.update_att_embed = tf.scatter_update(self.att_embed, tf.concat([self.pos_idx, self.neg_idx], 0)
+                                                              ,
+                                                              tf.concat([self.pos_att_output, self.neg_att_output], 0))
 
                     self.joint_doc_att_embed = tf.get_variable(shape=[self.m, self.k],
                                                                name='joint_doc_att_embed', trainable=False,
                                                                dtype=tf.float32
                                                                , initializer=tf.constant_initializer(0.))
                     if fc_joint_output:
-                        self.update_doc_att_embed = tf.scatter_update(self.joint_doc_att_embed, tf.concat([self.pos_idx,self.neg_idx],0),
+                        self.update_doc_att_embed = tf.scatter_update(self.joint_doc_att_embed,
+                                                                      tf.concat([self.pos_idx, self.neg_idx], 0),
                                                                       tf.concat(
                                                                           [self.pos_fc_layer, self.neg_fc_layer], 0))
                     elif sum_joint_output:
-                        self.summation_output = tf.add(tf.concat([self.pos_att_output,self.neg_att_output],0),
-                                                       tf.concat([self.pos_rnn_output,self.neg_rnn_output],0))
+                        self.summation_output = tf.add(tf.concat([self.pos_att_output, self.neg_att_output], 0),
+                                                       tf.concat([self.pos_rnn_output, self.neg_rnn_output], 0))
                         self.update_doc_att_embed = tf.scatter_update(self.joint_doc_att_embed,
-                                                                      tf.concat([self.pos_idx,self.neg_idx],0),
+                                                                      tf.concat([self.pos_idx, self.neg_idx], 0),
                                                                       self.summation_output)
 
         with tf.name_scope('Calculate_prediction_matrix'):
@@ -277,11 +280,16 @@ class Model():
                 self.get_prediction_matrix = self.R_hat
 
         with tf.name_scope('metrics'):
-            accuracy = tf.metrics.accuracy(tf.ones(shape=tf.shape(self.pos_r_hat)),self.pos_r_hat,name='Accuracy')
-            tf.summary.scalar('Accuracy', accuracy)
-            tf.summary.scalar("MSE", self.MSE_loss)
+            # useless loss functions
+            labels = tf.ones(shape=self.batch_size)
+
+            self.MSE = tf.metrics.mean_squared_error(labels, self.pos_r_hat)
+            self.RMSE = tf.sqrt(self.MSE)
+            # accuracy, _ = tf.metrics.(labels, self.pos_r_hat, name='Accuracy')
+            # tf.summary.scalar('Accuracy', accuracy)
+            # tf.summary.scalar("MSE", self.MSE)
             tf.summary.scalar("RMSE", self.RMSE)
-            tf.summary.scalar("L2-Loss", self.l2_loss)
+            tf.summary.scalar('Log-Loss', self.log_loss)
             tf.summary.scalar("Reg-Loss", self.reg_loss)
 
             # add op for merging summary
@@ -329,7 +337,7 @@ class Model():
             # A matrix that contains all the abstracts
             self.embeddings_init = tf.placeholder(tf.float32, shape=(vocab_size, embedding_dim), name='embeddings_init')
 
-            #shape=[vocab_size, embedding_dim]
+            # shape=[vocab_size, embedding_dim]
             embeddings = tf.get_variable(name="word_embeddings",
                                          initializer=self.embeddings_init, trainable=False)
             abstracts = tf.nn.embedding_lookup(embeddings, abs_idx)
@@ -492,7 +500,7 @@ class Model():
 
             tags_embeddings = tf.get_variable(name="embedding", shape=[tags_count, embedding_dim])
             # tags_embeddings = tf.nn.embedding_lookup(embedding_var,tags_actual) # [batch_size, max_tags, embeding_dim]
-            #todo: change F to rnn output only
+            # todo: change F to rnn output only
             tags_probalities = tf.einsum('ai,bi->ab', self.pos_rnn_output, tags_embeddings)
 
             # todo: add down weights for predicting the unobserved tags
@@ -661,7 +669,7 @@ def get_input_dataset(train_filename, test_filename, batch_size, example_structu
 
             training_init_op = iterator.make_initializer(training_dataset)
             # validation_init_op = iterator.make_initializer(test_dataset)
-            #todo: fix the test set iterator
+            # todo: fix the test set iterator
             validation_init_op = None
             next_element = iterator.get_next()
 
