@@ -153,14 +153,15 @@ class Model():
                 # if use_rnn or use_attribues:
                 #     self.biases = tf.add(2 * self.U_bias_embed, self.pos_V_bias_embed)
                 #     self.biases = tf.add(self.biases, self.neg_V_bias_embed)
-                if use_rnn or use_attribues:
-                    self.pos_r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.pos_F), reduction_indices=1)
-                    self.pos_r_hat = tf.add(self.pos_r_hat,  self.pos_V_bias_embed)
-                    # self.pos_r_hat = tf.Print(self.pos_r_hat, [tf.shape(self.pos_r_hat), self.pos_r_hat],
-                    #                           message='pos_r_hat=', first_n=20,
-                    #                           summarize=4)
-                    self.neg_r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.neg_F), reduction_indices=1)
-                    self.neg_r_hat = tf.add(self.neg_r_hat,  self.neg_V_bias_embed)
+                # if use_rnn or use_attribues:
+                self.pos_r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.pos_F), reduction_indices=1)
+                self.pos_r_hat = tf.add(self.pos_r_hat,  self.pos_V_bias_embed)
+                # self.pos_r_hat = tf.Print(self.pos_r_hat, [tf.shape(self.pos_r_hat), self.pos_r_hat],
+                #                           message='pos_r_hat=', first_n=20,
+                #                           summarize=4)
+                self.neg_r_hat = tf.reduce_sum(tf.multiply(self.U_embed, self.neg_F), reduction_indices=1)
+                self.neg_r_hat = tf.add(self.neg_r_hat,  self.neg_V_bias_embed)
+
 
         multi_task = args.multi_task
         with tf.name_scope('Tag_prediction'):
@@ -284,12 +285,17 @@ class Model():
             # useless loss functions
             labels = tf.ones(shape=self.batch_size)
 
-            self.MSE, _ = tf.metrics.mean_squared_error(labels, self.pos_r_hat)
-            self.RMSE = tf.sqrt(self.MSE)
+            self.MSE_pos, _ = tf.metrics.mean_squared_error(labels, tf.nn.sigmoid(self.pos_r_hat))
+            self.RMSE_pos = tf.sqrt(self.MSE)
+
+            labels = tf.zeros(shape=self.batch_size)
+            self.MSE_pos, _ = tf.metrics.mean_squared_error(labels, tf.nn.sigmoid(self.neg_r_hat))
+            self.RMSE_pos = tf.sqrt(self.MSE)
             # accuracy, _ = tf.metrics.(labels, self.pos_r_hat, name='Accuracy')
             # tf.summary.scalar('Accuracy', accuracy)
             # tf.summary.scalar("MSE", self.MSE)
-            tf.summary.scalar("RMSE", self.RMSE)
+            tf.summary.scalar("RMSE_pos", self.RMSE_pos)
+            tf.summary.scalar("RMSE_pos", self.RMSE)
             tf.summary.scalar('Log-Loss', self.log_loss)
             tf.summary.scalar("Reg-Loss", self.reg_loss)
 
