@@ -18,7 +18,7 @@ def bias_variable(shape, name):
 class Model():
     def __init__(self, args, ratings, features_matrix,
                  tags_count, confidence_matrix, train_filename, test_filename, enabel_dropout=False,
-                 reg_lambda_u=0.01, reg_lambda_v=100, reg_lambda_att=0.5):
+                 reg_lambda_u=0.025, reg_lambda_v=0.0025, reg_lambda_att=0.5):
         self.args = args
         self.dataset = args.dataset
 
@@ -284,18 +284,23 @@ class Model():
         with tf.name_scope('metrics'):
             # useless loss functions
             labels = tf.ones(shape=self.batch_size)
-
-            self.MSE_pos, _ = tf.metrics.mean_squared_error(labels, tf.nn.sigmoid(self.pos_r_hat))
-            self.RMSE_pos = tf.sqrt(self.MSE)
+            if use_rnn or use_attribues:
+                self.MSE_pos, _ = tf.metrics.mean_squared_error(labels, tf.log(tf.nn.sigmoid(self.pos_r_hat)))
+            else:
+                self.MSE_pos, _ = tf.metrics.mean_squared_error(labels, tf.log(tf.nn.sigmoid(self.pos_r_hat)))
+            self.RMSE_pos = tf.sqrt(self.MSE_pos)
 
             labels = tf.zeros(shape=self.batch_size)
-            self.MSE_pos, _ = tf.metrics.mean_squared_error(labels, tf.nn.sigmoid(self.neg_r_hat))
-            self.RMSE_pos = tf.sqrt(self.MSE)
+            if use_rnn or use_attribues:
+                self.MSE_neg, _ = tf.metrics.mean_squared_error(labels, tf.log(tf.nn.sigmoid(self.neg_r_hat)))
+            else:
+                self.MSE_neg, _ = tf.metrics.mean_squared_error(labels, tf.log( tf.nn.sigmoid(self.neg_r_hat)))
+            self.RMSE_neg = tf.sqrt(self.MSE_neg)
             # accuracy, _ = tf.metrics.(labels, self.pos_r_hat, name='Accuracy')
             # tf.summary.scalar('Accuracy', accuracy)
             # tf.summary.scalar("MSE", self.MSE)
             tf.summary.scalar("RMSE_pos", self.RMSE_pos)
-            tf.summary.scalar("RMSE_pos", self.RMSE)
+            tf.summary.scalar("RMSE_pos", self.RMSE_neg)
             tf.summary.scalar('Log-Loss', self.log_loss)
             tf.summary.scalar("Reg-Loss", self.reg_loss)
 

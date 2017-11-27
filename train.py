@@ -341,9 +341,11 @@ def train(args):
         dropout_bidir_layer = 0.5
         dropout_embed_layer = 0.1
 
-        feed_dict = {model.abstracts_matrix_init: static_padding(parser.all_documents, maxlen=args.max_length,
-                                                                 num_papers=parser.paper_count),
-                     'RNN/embeddings_init:0': parser.embeddings}
+        feed_dict= {model.abstracts_matrix_init: static_padding(parser.all_documents, maxlen=args.max_length,
+                                                             num_papers=parser.paper_count)} 
+        if args.use_rnn:
+             feed_dict['RNN/embeddings_init:0'] = parser.embeddings
+            
         if multi_task:
             # Load the tag matrix while initializing graph variables.
             feed_dict[model.tags_matrix_init] = parser.get_tag_matrix()
@@ -381,7 +383,7 @@ def train(args):
                 fetches = [model.joint_train_step,
                            # model.u_idx, model.v_idx,
                            # model.U, model.V, model.doc_embed, model.U_bias, model.V_bias, model.att_output,
-                           model.RMSE, model.summary_op, model.inc_batch_pointer_op
+                           model.RMSE_pos, model.summary_op, model.inc_batch_pointer_op
                            ]
                 if args.use_rnn:
                     fetches.extend(
